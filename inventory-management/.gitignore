@@ -1,0 +1,37 @@
+# Python 配置文件（包含本地路径）
+.python-config.json
+
+# 依赖
+node_modules/
+package-lock.json
+
+# 构建输出
+dist/
+.vite/
+release/
+
+# 日志文件
+*.log
+logs/
+
+# 操作系统文件
+.DS_Store5
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 环境变量
+.env
+.env.local
+
+# 数据库文件（开发环境）
+*.db
+*.db-journal
+
+# 临时文件
+*.tmp
+*.temp
