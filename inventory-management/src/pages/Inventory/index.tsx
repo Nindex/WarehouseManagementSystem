@@ -929,69 +929,68 @@ const Inventory: React.FC = () => {
         return
       }
 
-      // 批量入库每个SN码
-      let successCount = 0
-      let failCount = 0
-      const errors: string[] = []
-
+      // 预处理：检查每个商品的SN码是否有重复
       for (const productItem of batchInboundProducts) {
         if (productItem.serial_numbers.length === 0) {
           continue
         }
-
-        // 检查当前商品的SN码是否有重复
         const duplicateInProduct = productItem.serial_numbers.filter((sn, index) => productItem.serial_numbers.indexOf(sn) !== index)
         if (duplicateInProduct.length > 0) {
           message.error(`商品 "${productItem.product_name}" 的SN码中有重复：${[...new Set(duplicateInProduct)].join(', ')}`)
           return
         }
-
-        // 如果批次号为空，系统会自动生成（按照规则：YYMMDDHHMM + 自增数字）
-        let batchNumber = values.batch_number
-        if (!batchNumber || !batchNumber.trim()) {
-          const batchResponse = await inventoryAPI.generateBatchNumber()
-          if (batchResponse.success && batchResponse.data) {
-            batchNumber = batchResponse.data
-          } else {
-            message.error('生成批次号失败，请手动输入批次号')
-            return
-          }
-        }
-
-        for (const snCode of productItem.serial_numbers) {
-          if (!snCode.trim()) {
-            continue
-          }
-
-          try {
-            // 每个SN码作为一个独立的入库记录，数量为1，使用同一个批次号
-            await dispatch(adjustStock({
-              product_id: productItem.product_id,
-              quantity: 1,
-              type: 'in',
-              location: values.location,
-              batch_number: batchNumber,
-              notes: values.notes || undefined, // 不将SN码填入notes
-              serial_numbers: [snCode.trim()], // 传递SN码数组
-              created_by: user?.id
-            })).unwrap()
-            successCount++
-          } catch (error: any) {
-            console.error(`商品 ${productItem.product_name} SN码 ${snCode} 入库失败:`, error)
-            failCount++
-            errors.push(`${productItem.product_name} - ${snCode}: ${error?.message || '入库失败'}`)
-          }
-        }
       }
 
-      if (successCount > 0) {
-        message.success(`批量入库完成：成功 ${successCount} 个，失败 ${failCount} 个`)
-        if (failCount > 0 && errors.length > 0) {
-          Modal.warning({
-            title: `批量入库失败详情（失败 ${failCount} 个）`,
+      // 准备批量入库数据
+      const batchItems = batchInboundProducts
+        .filter(p => p.serial_numbers.length > 0)
+        .map(p => ({
+          product_id: p.product_id,
+          serial_numbers: p.serial_numbers.map(sn => sn.trim()).filter(sn => sn)
+        }))
+
+      // 调用批量入库API
+      const result = await inventoryAPI.batchInbound(batchItems, {
+        location: values.location,
+        batch_number: values.batch_number || undefined,
+        notes: values.notes || undefined,
+        created_by: user?.id
+      })
+
+      if (result.success && result.data) {
+        const { successCount, failCount, errors } = result.data
+
+        if (successCount > 0) {
+          message.success(`批量入库完成：成功 ${successCount} 个，失败 ${failCount} 个`)
+          if (failCount > 0 && errors.length > 0) {
+            Modal.warning({
+              title: `批量入库失败详情（失败 ${failCount} 个）`,
+              width: 700,
+              content: (
+                <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                    {errors.map((error, index) => (
+                      <li key={index} style={{ marginBottom: 8, color: '#ff4d4f' }}>
+                        <strong>{error}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ),
+              okText: '我知道了'
+            })
+          }
+          setBatchInboundModalVisible(false)
+          batchInboundForm.resetFields()
+          setBatchInboundProducts([])
+          await dispatch(fetchProducts({ page: currentPage, pageSize: pageSize === 1 ? 20 : pageSize }))
+        } else {
+          Modal.error({
+            title: '批量入库失败',
             width: 700,
             content: (
               <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                <p style={{ color: '#ff4d4f', marginBottom: 12 }}>请检查以下商品和SN码：</p>
                 <ul style={{ margin: 0, paddingLeft: 20 }}>
                   {errors.map((error, index) => (
                     <li key={index} style={{ marginBottom: 8, color: '#ff4d4f' }}>
@@ -1004,28 +1003,8 @@ const Inventory: React.FC = () => {
             okText: '我知道了'
           })
         }
-        setBatchInboundModalVisible(false)
-        batchInboundForm.resetFields()
-        setBatchInboundProducts([])
-        await dispatch(fetchProducts({ page: currentPage, pageSize: pageSize === 1 ? 20 : pageSize }))
       } else {
-        Modal.error({
-          title: '批量入库失败',
-          width: 700,
-          content: (
-            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-              <p style={{ color: '#ff4d4f', marginBottom: 12 }}>请检查以下商品和SN码：</p>
-              <ul style={{ margin: 0, paddingLeft: 20 }}>
-                {errors.map((error, index) => (
-                  <li key={index} style={{ marginBottom: 8, color: '#ff4d4f' }}>
-                    <strong>{error}</strong>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ),
-          okText: '我知道了'
-        })
+        message.error(result.error || '批量入库失败')
       }
     } catch (error: any) {
       if (error?.errorFields) {
@@ -3023,6 +3002,7 @@ const Inventory: React.FC = () => {
         key: 'action',
         width: '15%',
         fixed: 'right' as const,
+        align: 'center' as const,
         render: (_: any, record: Product) => (
           <Button
             type="primary"
@@ -3486,7 +3466,7 @@ const Inventory: React.FC = () => {
               label: (
                 <span style={{
                   display: 'inline-block',
-                  fontSize: 16,
+                  fontSize: 18,
                 }}>
                   商品列表
                 </span>
@@ -3585,7 +3565,7 @@ const Inventory: React.FC = () => {
               label: (
                 <span style={{
                   display: 'inline-block',
-                  fontSize: 16,
+                  fontSize: 18,
                 }}>
                   批次管理
                 </span>
@@ -3928,6 +3908,7 @@ const Inventory: React.FC = () => {
               key: 'action',
               width: '15%',
               fixed: 'right' as const,
+              align: 'center' as const,
               render: (_: any, record: Category) => (
                 <Space size="small">
                   <Button

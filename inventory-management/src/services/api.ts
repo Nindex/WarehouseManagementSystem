@@ -2,7 +2,6 @@ import {
   UserService, 
   ProductService, 
   InventoryService, 
-  ProcurementService,
   CustomerService,
   SystemSettingService
 } from './database'
@@ -295,6 +294,19 @@ export const inventoryAPI = {
     }
   },
 
+  batchInbound: async (
+    items: Array<{ product_id: number; serial_numbers: string[] }>,
+    commonData: { location?: string; batch_number?: string; notes?: string; created_by?: number }
+  ) => {
+    try {
+      const result = await InventoryService.batchInbound(items, commonData)
+      return { success: true, data: result }
+    } catch (error: any) {
+      console.error('批量入库失败:', error)
+      return { success: false, error: error?.message || '批量入库失败' }
+    }
+  },
+
   getTransactions: async (page = 1, pageSize = 20, filters: any = {}) => {
     try {
       const result = await InventoryService.getInventoryTransactions(
@@ -548,184 +560,6 @@ export const inventoryAPI = {
     } catch (error: any) {
       console.error('执行库存盘点失败:', error)
       return { success: false, error: error?.message || '执行库存盘点失败' }
-    }
-  }
-}
-
-// 采购相关API
-export const procurementAPI = {
-  getSuppliers: async (page = 1, pageSize = 20, search = '') => {
-    try {
-      const result = await ProcurementService.getAllSuppliers(page, pageSize, search)
-      return {
-        success: true,
-        data: {
-          ...result,
-          totalPages: Math.ceil(result.total / pageSize)
-        }
-      }
-    } catch (error) {
-      console.error('获取供应商列表失败:', error)
-      return { success: false, error: '获取供应商列表失败' }
-    }
-  },
-
-  getSupplier: async (id: number) => {
-    try {
-      const supplier = await ProcurementService.getSupplierById(id)
-      if (supplier) {
-        return { success: true, data: supplier }
-      } else {
-        return { success: false, error: '供应商不存在' }
-      }
-    } catch (error) {
-      console.error('获取供应商详情失败:', error)
-      return { success: false, error: '获取供应商详情失败' }
-    }
-  },
-
-  createSupplier: async (supplierData: any) => {
-    try {
-      const supplier = await ProcurementService.createSupplier(supplierData)
-      return { success: true, data: supplier }
-    } catch (error) {
-      console.error('创建供应商失败:', error)
-      return { success: false, error: '创建供应商失败' }
-    }
-  },
-
-  updateSupplier: async (id: number, supplierData: any) => {
-    try {
-      const supplier = await ProcurementService.updateSupplier(id, supplierData)
-      return { success: true, data: supplier }
-    } catch (error) {
-      console.error('更新供应商失败:', error)
-      return { success: false, error: '更新供应商失败' }
-    }
-  },
-
-  deleteSupplier: async (id: number, userId?: number) => {
-    try {
-      await ProcurementService.deleteSupplier(id, userId)
-      return { success: true, message: '供应商删除成功' }
-    } catch (error) {
-      console.error('删除供应商失败:', error)
-      return { success: false, error: '删除供应商失败' }
-    }
-  },
-
-  getPurchaseOrders: async (page = 1, pageSize = 20, filters: any = {}) => {
-    try {
-      const result = await ProcurementService.getAllPurchaseOrders(
-        page, 
-        pageSize, 
-        filters.status, 
-        filters.supplierId
-      )
-      return {
-        success: true,
-        data: {
-          ...result,
-          totalPages: Math.ceil(result.total / pageSize)
-        }
-      }
-    } catch (error) {
-      console.error('获取采购订单列表失败:', error)
-      return { success: false, error: '获取采购订单列表失败' }
-    }
-  },
-
-  getPurchaseOrder: async (id: number) => {
-    try {
-      const order = await ProcurementService.getPurchaseOrderById(id)
-      if (order) {
-        return { success: true, data: order }
-      } else {
-        return { success: false, error: '采购订单不存在' }
-      }
-    } catch (error) {
-      console.error('获取采购订单详情失败:', error)
-      return { success: false, error: '获取采购订单详情失败' }
-    }
-  },
-
-  createPurchaseOrder: async (orderData: any, createdBy: number) => {
-    try {
-      const order = await ProcurementService.createPurchaseOrder(orderData, createdBy)
-      return { success: true, data: order }
-    } catch (error) {
-      console.error('创建采购订单失败:', error)
-      return { success: false, error: '创建采购订单失败' }
-    }
-  },
-
-  updatePurchaseOrderStatus: async (id: number, status: string, approvedBy?: number, receivedQuantities?: Record<number, number>) => {
-    try {
-      const order = await ProcurementService.updatePurchaseOrderStatus(id, status, approvedBy, receivedQuantities)
-      return { success: true, data: order }
-    } catch (error) {
-      console.error('更新采购订单状态失败:', error)
-      return { success: false, error: '更新采购订单状态失败' }
-    }
-  },
-
-  getPurchaseReturns: async (page = 1, pageSize = 20, status = '') => {
-    try {
-      const result = await ProcurementService.getAllPurchaseReturns(page, pageSize, status)
-      return {
-        success: true,
-        data: {
-          ...result,
-          totalPages: Math.ceil(result.total / pageSize)
-        }
-      }
-    } catch (error) {
-      console.error('获取采购退货列表失败:', error)
-      return { success: false, error: '获取采购退货列表失败' }
-    }
-  },
-
-  createPurchaseReturn: async (returnData: any, createdBy: number) => {
-    try {
-      const returnRecord = await ProcurementService.createPurchaseReturn(returnData, createdBy)
-      return { success: true, data: returnRecord }
-    } catch (error) {
-      console.error('创建采购退货失败:', error)
-      return { success: false, error: '创建采购退货失败' }
-    }
-  },
-
-  getPurchaseReturn: async (id: number) => {
-    try {
-      const returnRecord = await ProcurementService.getPurchaseReturnById(id)
-      if (returnRecord) {
-        return { success: true, data: returnRecord }
-      } else {
-        return { success: false, error: '采购退货不存在' }
-      }
-    } catch (error) {
-      console.error('获取采购退货详情失败:', error)
-      return { success: false, error: '获取采购退货详情失败' }
-    }
-  },
-
-  updatePurchaseReturnStatus: async (id: number, status: string, approvedBy?: number) => {
-    try {
-      const returnRecord = await ProcurementService.updatePurchaseReturnStatus(id, status, approvedBy)
-      return { success: true, data: returnRecord }
-    } catch (error) {
-      console.error('更新采购退货状态失败:', error)
-      return { success: false, error: '更新采购退货状态失败' }
-    }
-  },
-
-  getProcurementStats: async () => {
-    try {
-      const stats = await ProcurementService.getProcurementStats()
-      return { success: true, data: stats }
-    } catch (error) {
-      console.error('获取采购统计失败:', error)
-      return { success: false, error: '获取采购统计失败' }
     }
   }
 }
@@ -1288,7 +1122,6 @@ export default {
   auth: authAPI,
   product: productAPI,
   inventory: inventoryAPI,
-  procurement: procurementAPI,
   report: reportAPI,
   systemLog: systemLogAPI,
   database: databaseAPI,

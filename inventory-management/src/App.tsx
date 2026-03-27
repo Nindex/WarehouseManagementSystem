@@ -12,7 +12,6 @@ const LoginPage = lazy(() => import('@/pages/Login'))
 const RegisterPage = lazy(() => import('@/pages/Register'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const Inventory = lazy(() => import('@/pages/Inventory'))
-const Procurement = lazy(() => import('@/pages/Procurement'))
 const Reports = lazy(() => import('@/pages/Reports'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Customers = lazy(() => import('@/pages/Customers'))
@@ -75,20 +74,10 @@ function App() {
                             <Route path="/inventory/inbound" element={<Inventory />} />
                             <Route path="/inventory/outbound" element={<Inventory />} />
                             <Route path="/inventory/check" element={<Inventory />} />
-                            <Route path="/procurement" element={<Navigate to="/procurement/orders" replace />} />
-                            <Route path="/procurement/orders" element={<Procurement />} />
-                            <Route path="/procurement/orders/new" element={<Procurement />} />
-                            <Route path="/procurement/orders/:id" element={<Procurement />} />
-                            <Route path="/procurement/suppliers" element={<Procurement />} />
-                            <Route path="/procurement/suppliers/new" element={<Procurement />} />
-                            <Route path="/procurement/suppliers/:id" element={<Procurement />} />
-                            <Route path="/procurement/returns" element={<Procurement />} />
-                            <Route path="/procurement/returns/new" element={<Procurement />} />
                             <Route path="/customers" element={<Customers />} />
                             <Route path="/stores" element={<Stores />} />
                             <Route path="/reports" element={<Navigate to="/reports/inventory" replace />} />
                             <Route path="/reports/inventory" element={<Reports />} />
-                            <Route path="/reports/procurement" element={<Reports />} />
                             <Route path="/reports/outbound" element={<Reports />} />
                             <Route path="/settings" element={<Navigate to="/settings/users" replace />} />
                             <Route path="/settings/profile" element={<Settings />} />

@@ -1,6 +1,6 @@
--- 插入默认用户
+-- 插入默认用户（密码已使用bcrypt哈希，明文密码为：123）
 INSERT INTO users (username, password, name, email, phone) VALUES
-('admin', '123', '系统管理员', 'admin@system.com', '13800138000');
+('admin', '$2a$10$pQruickl6h9HfJy1YZjrEOnXd8LSXnKI9O1oXir1YIEKhOsL879f6', '系统管理员', 'admin@system.com', '13800138000');
 
 -- 插入产品分类（必须在产品之前插入，因为产品有外键引用）
 INSERT INTO categories (name, description) VALUES

@@ -15,7 +15,6 @@ const { Option } = Select
 const Reports: React.FC = () => {
   const location = useLocation()
   const { products, total } = useAppSelector((state) => state.inventory)
-  const { orders } = useAppSelector((state) => state.procurement)
   const app = App.useApp()
   const { message } = app
 
@@ -437,13 +436,13 @@ const Reports: React.FC = () => {
           border-bottom: 1px solid rgba(0, 255, 255, 0.3) !important;
           color: #00ffff !important;
           font-weight: bold !important;
-          font-size: 14px !important;
+          font-size: 18px !important;
         }
         .tech-table .ant-table-tbody > tr > td {
           background: transparent !important;
           border-bottom: 1px solid rgba(0, 255, 255, 0.1) !important;
           color: #00ffff !important;
-          font-size: 13px !important;
+          font-size: 15px !important;
         }
         .tech-table .ant-table-tbody > tr:hover > td {
           background: transparent !important;
@@ -677,7 +676,7 @@ const Reports: React.FC = () => {
         </Row>
 
         {isInventoryReport && (
-          <Row gutter={[20, 20]}>
+          <Row gutter={[15, 15]}>
             <Col span={6}>
               <div style={techStyles.statCard} className="tech-card">
                 <div style={techStyles.glowEffect} />

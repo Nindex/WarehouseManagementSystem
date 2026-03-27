@@ -1,24 +1,20 @@
 import React, { useEffect, useState } from 'react'
-import { Layout, Menu, Avatar, Dropdown, Space, Badge, theme, Button, Typography, List, Empty } from 'antd'
+import { Layout, Menu, Avatar, Dropdown, Space, theme, Button, Typography } from 'antd'
 import {
   DashboardOutlined,
   ShopOutlined,
-  ShoppingCartOutlined,
   BarChartOutlined,
   SettingOutlined,
   LogoutOutlined,
   UserOutlined,
   TeamOutlined,
-  BellOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  InfoCircleOutlined
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { logout } from '@/store/slices/authSlice'
 import { toggleSidebar } from '@/store/slices/uiSlice'
-import { procurementAPI } from '@/services/api'
 
 const { Header, Sider, Content } = Layout
 
@@ -33,9 +29,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const { user } = useAppSelector((state) => state.auth)
   const { sidebarCollapsed } = useAppSelector((state) => state.ui)
   const [openKeys, setOpenKeys] = useState<string[]>([])
-  const [notificationVisible, setNotificationVisible] = useState(false)
-  const [notifications, setNotifications] = useState<any[]>([])
-  const [notificationLoading, setNotificationLoading] = useState(false)
   const [currentTime, setCurrentTime] = useState<string>('')
   
   const {
@@ -116,130 +109,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     }
   }
 
-  const loadNotifications = async () => {
-    setNotificationLoading(true)
-    try {
-      // 获取待审核的采购订单作为通知
-      const ordersRes = await procurementAPI.getPurchaseOrders(1, 10, 'pending')
-      if (ordersRes.success && ordersRes.data) {
-        const orders = ordersRes.data.data || []
-        // 再次过滤，确保只显示状态为 'pending' 的订单
-        const pendingOrders = orders.filter((order: any) => order.status === 'pending')
-        setNotifications(pendingOrders.map((order: any) => ({
-          id: order.id,
-          type: 'order',
-          title: `待审核订单：${order.order_number}`,
-          description: `供应商：${order.supplier_name || '未知'}，金额：¥${order.total_amount?.toFixed(2) || '0.00'}`,
-          time: order.created_at,
-          orderId: order.id
-        })))
-      } else {
-        setNotifications([])
-      }
-    } catch (error) {
-      console.error('加载通知失败:', error)
-      setNotifications([])
-    } finally {
-      setNotificationLoading(false)
-    }
-  }
-
-  const handleNotificationClick = (notification: any) => {
-    if (notification.type === 'order' && notification.orderId) {
-      navigate(`/procurement/orders/${notification.orderId}`)
-      setNotificationVisible(false)
-    }
-  }
-
-  const notificationMenu = (
-    <div style={{ 
-      maxHeight: '400px', 
-      overflowY: 'auto', 
-      width: '360px',
-      background: '#fff',
-      borderRadius: '8px'
-    }}>
-      <div style={{ 
-        padding: '16px 20px', 
-        borderBottom: '1px solid #f0f0f0', 
-        marginBottom: 0,
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        borderRadius: '8px 8px 0 0'
-      }}>
-        <Typography.Text strong style={{ 
-          color: '#fff',
-          fontSize: 16,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8
-        }}>
-          <BellOutlined style={{ fontSize: 18 }} />
-          待办事项
-          {notifications.length > 0 && (
-            <Badge 
-              count={notifications.length} 
-              style={{ 
-                backgroundColor: 'rgba(255,255,255,0.3)',
-                color: '#fff',
-                borderColor: 'transparent'
-              }} 
-            />
-          )}
-        </Typography.Text>
-      </div>
-      {notificationLoading ? (
-        <div style={{ padding: '40px', textAlign: 'center' }}>
-          <Typography.Text type="secondary">加载中...</Typography.Text>
-        </div>
-      ) : notifications.length === 0 ? (
-        <Empty 
-          image={Empty.PRESENTED_IMAGE_SIMPLE} 
-          description="暂无待办事项"
-          style={{ padding: '40px 20px' }}
-        />
-      ) : (
-        <List
-          dataSource={notifications}
-          renderItem={(item: any, index: number) => (
-            <List.Item
-              style={{ 
-                padding: '16px 20px',
-                cursor: 'pointer',
-                borderBottom: index < notifications.length - 1 ? '1px solid #f0f0f0' : 'none',
-                transition: 'all 0.3s',
-                margin: 0
-              }}
-              onClick={() => handleNotificationClick(item)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(102, 126, 234, 0.06)'
-                e.currentTarget.style.transform = 'translateX(4px)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-                e.currentTarget.style.transform = 'translateX(0)'
-              }}
-            >
-              <List.Item.Meta
-                title={
-                  <Typography.Text strong style={{ fontSize: 14, color: '#1a1a2e' }}>
-                    {item.title}
-                  </Typography.Text>
-                }
-                description={
-                  <Typography.Text type="secondary" style={{ fontSize: 12, marginTop: 4 }}>
-                    {item.description}
-                  </Typography.Text>
-                }
-              />
-            </List.Item>
-          )}
-        />
-      )}
-    </div>
-  )
-
   // 父菜单的 key 列表（不应该导航）
-  const parentMenuKeys = ['inventory-group', 'procurement-group', 'reports-group', 'settings-group']
+  const parentMenuKeys = ['inventory-group', 'reports-group', 'settings-group']
 
   const handleMenuClick = ({ key }: { key: string }) => {
     // 如果点击的是父菜单项（有子菜单的），不进行导航
@@ -262,11 +133,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const cleanPath = path.replace(/^#/, '') || '/'
     
     if (cleanPath.startsWith('/inventory/')) return [cleanPath]
-    if (cleanPath.startsWith('/procurement/')) return [cleanPath]
     if (cleanPath.startsWith('/reports/')) return [cleanPath]
     if (cleanPath.startsWith('/settings/')) return [cleanPath]
     if (cleanPath === '/inventory') return ['/inventory']
-    if (cleanPath === '/procurement') return ['/procurement/orders']
     if (cleanPath === '/reports') return ['/reports/inventory']
     if (cleanPath === '/settings') return ['/settings/users']
     return [cleanPath]
@@ -277,8 +146,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const path = location.pathname.replace(/^#/, '') || '/'
     if (path.startsWith('/inventory')) {
       setOpenKeys(['inventory-group'])
-    } else if (path.startsWith('/procurement')) {
-      setOpenKeys(['procurement-group'])
     } else if (path.startsWith('/reports')) {
       setOpenKeys(['reports-group'])
     } else if (path.startsWith('/settings')) {
@@ -651,57 +518,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 {currentTime}
               </Typography.Text>
             </div>
-            <Dropdown
-              overlay={notificationMenu}
-              placement="bottomRight"
-              open={notificationVisible}
-              onOpenChange={(open) => {
-                setNotificationVisible(open)
-                if (open) {
-                  loadNotifications()
-                }
-              }}
-              trigger={['click']}
-            >
-              <div 
-                style={{
-                  position: 'relative',
-                  cursor: 'pointer',
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  transition: 'all 0.3s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(102, 126, 234, 0.1)'
-                  e.currentTarget.style.transform = 'translateY(-2px)'
-                  const icon = e.currentTarget.querySelector('.anticon')
-                  if (icon) {
-                    (icon as HTMLElement).style.transform = 'scale(1.1)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent'
-                  e.currentTarget.style.transform = 'translateY(0)'
-                  const icon = e.currentTarget.querySelector('.anticon')
-                  if (icon) {
-                    (icon as HTMLElement).style.transform = 'scale(1)'
-                  }
-                }}
-              >
-                <Badge count={notifications.length} size="small" offset={[-2, 2]}>
-                  <BellOutlined 
-                    style={{ 
-                      fontSize: 20, 
-                      color: '#667eea',
-                      transition: 'all 0.3s'
-                    }} 
-                  />
-                </Badge>
-              </div>
-            </Dropdown>
             
             <Dropdown
               menu={{ 

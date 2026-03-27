@@ -6,7 +6,6 @@
   "scripts": {
     "start": "node scripts/electron-only.js",
     "dev": "node scripts/dev-server.js",
-
     "clean": "node scripts/clean-release.js",
     "clean:all": "node -e \"const fs = require('fs'); ['release', 'dist', '.vite/build'].forEach(dir => { try { fs.rmSync(dir, {recursive: true, force: true}); } catch(e) {} })\"",
     "build:code": "vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts && vite build --config vite.config.ts",
@@ -33,7 +32,6 @@
     "install:bindings": "node scripts/install-bindings.js",
     "rebuild:sqlite": "node scripts/rebuild-sqlite.js",
     "fix:sqlite": "node scripts/fix-better-sqlite3.js",
-
     "install:sqlite:prebuilt": "node scripts/install-sqlite-prebuilt.js",
     "update:server": "node scripts/update-server.js",
     "update:server:prod": "NODE_ENV=production PORT=8080 node scripts/update-server.js",
@@ -58,6 +56,7 @@
     "@electron-forge/plugin-vite": "^7.4.0",
     "@electron-forge/shared-types": "^7.4.0",
     "@electron/fuses": "^1.8.0",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",

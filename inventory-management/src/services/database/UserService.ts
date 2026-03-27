@@ -1,5 +1,9 @@
 import databaseService from '@/database/DatabaseService'
 import { User } from '@/types'
+import bcrypt from 'bcryptjs'
+
+// bcrypt 盐值轮数
+const SALT_ROUNDS = 10
 
 export interface CreateUserData {
   username: string
@@ -27,11 +31,33 @@ class UserService {
         [username]
       )
       if (!row) return null
-      if (row.password !== password) return null
+      
+      // 检查密码是否已哈希（以 $2a$ 或 $2b$ 开头是 bcrypt 哈希的特征）
+      const isHashed = row.password && (row.password.startsWith('$2a$') || row.password.startsWith('$2b$'))
+      
+      let passwordMatch = false
+      if (isHashed) {
+        // 使用 bcrypt 比较密码
+        passwordMatch = await bcrypt.compare(password, row.password)
+      } else {
+        // 兼容旧的明文密码（首次验证成功后会自动升级为哈希密码）
+        passwordMatch = row.password === password
+        if (passwordMatch) {
+          // 自动升级为哈希密码
+          const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS)
+          await databaseService.update(
+            'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [hashedPassword, row.id]
+          )
+        }
+      }
+      
+      if (!passwordMatch) return null
+      
       const user: User = {
         id: row.id,
         username: row.username,
-        password_hash: row.password,
+        password_hash: '', // 不返回密码哈希
         name: row.name,
         email: row.email ?? undefined,
         phone: row.phone ?? undefined,
@@ -124,9 +150,13 @@ class UserService {
       if (exists) {
         throw new Error('用户名已存在')
       }
+      
+      // 使用 bcrypt 哈希密码
+      const hashedPassword = await bcrypt.hash(userData.password, SALT_ROUNDS)
+      
       const userId = await databaseService.insert(
         'INSERT INTO users (username, password, name, email, phone, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-        [userData.username, userData.password, userData.name, userData.email || null, userData.phone || null]
+        [userData.username, hashedPassword, userData.name, userData.email || null, userData.phone || null]
       )
       const newUser = await this.getUserById(userId)
       if (!newUser) throw new Error('创建用户失败')
@@ -214,9 +244,12 @@ class UserService {
    */
   async changePassword(id: number, newPassword: string): Promise<void> {
     try {
+      // 使用 bcrypt 哈希新密码
+      const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS)
+      
       const affectedRows = await databaseService.update(
         'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [newPassword, id]
+        [hashedPassword, id]
       )
 
       if (affectedRows === 0) {

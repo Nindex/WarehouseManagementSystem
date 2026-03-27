@@ -1,19 +1,15 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { Row, Col, Card, Statistic, Table, Tag, Button, Space, Typography, Select, DatePicker, Tooltip, Pagination } from 'antd'
+import { Row, Col, Card, Statistic, Tag, Button, Space, Typography, Select, DatePicker, Pagination } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import {
   ShoppingCartOutlined,
   ShopOutlined,
-  WarningOutlined,
-  ClockCircleOutlined,
   ArrowUpOutlined,
-  ArrowDownOutlined,
-  ArrowRightOutlined
+  ArrowDownOutlined
 } from '@ant-design/icons'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchStockAlerts, fetchProducts } from '@/store/slices/inventorySlice'
-import { inventoryAPI, systemLogAPI, procurementAPI, productAPI } from '@/services/api'
-import type { StockAlert } from '@/types'
+import { fetchProducts } from '@/store/slices/inventorySlice'
+import { inventoryAPI, systemLogAPI, productAPI } from '@/services/api'
 import type { SystemLog } from '@/services/database/SystemLogService'
 import dayjs from 'dayjs'
 
@@ -28,13 +24,11 @@ interface MergedLog extends SystemLog {
 
 const Dashboard: React.FC = () => {
   const dispatch = useAppDispatch()
-  const { stockAlerts, loading, total: productTotal } = useAppSelector((state) => state.inventory)
+  const { total: productTotal } = useAppSelector((state) => state.inventory)
   const { user } = useAppSelector((state) => state.auth)
   const [kpiData, setKpiData] = useState({
     totalProducts: 0,
     totalValue: 0,
-    lowStockCount: 0,
-    pendingOrders: 0
   })
   const [recentLogs, setRecentLogs] = useState<SystemLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -53,7 +47,6 @@ const Dashboard: React.FC = () => {
   const [productInfoCache, setProductInfoCache] = useState<Record<number, { name: string }>>({})
 
   useEffect(() => {
-    dispatch(fetchStockAlerts())
     dispatch(fetchProducts({ page: 1, pageSize: 1 })) // 获取总数
   }, [dispatch])
 
@@ -66,7 +59,7 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     loadRecentLogs()
-  }, [dateRange, operationType, user?.id])
+  }, [dateRange, operationType, user?.id, logsCurrentPage, logsPageSize])
 
   const loadRecentLogs = async () => {
     try {
@@ -83,8 +76,10 @@ const Dashboard: React.FC = () => {
         filters.user_id = user.id
       }
 
-      // 一次性获取所有数据，然后在前端进行合并和分页
-      const response = await systemLogAPI.getLogs(1, 10000, filters)
+      // 使用后端分页，限制单次加载数量为 500 条
+      const maxPageSize = 500
+      const actualPageSize = Math.min(logsPageSize, maxPageSize)
+      const response = await systemLogAPI.getLogs(logsCurrentPage, actualPageSize, filters)
       if (response.success && response.data) {
         setRecentLogs(response.data.data || [])
         setLogsTotal(response.data.total || 0)
@@ -226,12 +221,8 @@ const Dashboard: React.FC = () => {
     })
   }, [recentLogs])
 
-  // 前端分页：基于合并后的数据
-  const mergedLogs = useMemo(() => {
-    const start = (logsCurrentPage - 1) * logsPageSize
-    const end = start + logsPageSize
-    return allMergedLogs.slice(start, end)
-  }, [allMergedLogs, logsCurrentPage, logsPageSize])
+  // 由于使用后端分页，直接使用合并后的数据作为显示数据
+  const mergedLogs = allMergedLogs
 
   // 加载商品信息缓存（用于替换描述中的商品ID为商品名称）
   useEffect(() => {
@@ -281,7 +272,7 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     loadKPIData()
-  }, [productTotal, stockAlerts])
+  }, [productTotal])
 
   const loadKPIData = async () => {
     try {
@@ -290,23 +281,9 @@ const Dashboard: React.FC = () => {
       // getInventoryValue 返回的是对象 { totalValue, totalItems, categoryBreakdown }
       const totalValue = valueRes.success && valueRes.data ? (valueRes.data.totalValue || 0) : 0
 
-      // 从已加载的库存预警中获取低库存数量
-      const lowStockCount = stockAlerts ? stockAlerts.filter((a: any) => a.alert_type === 'low_stock').length : 0
-
-      // 获取待处理订单数（获取所有pending状态的订单总数）
-      let pendingOrders = 0
-      const ordersRes = await procurementAPI.getPurchaseOrders(1, 1000, 'pending')
-      if (ordersRes.success && ordersRes.data) {
-        // 再次过滤确保只计算pending状态的订单
-        const pendingOrdersList = ordersRes.data.data || []
-        pendingOrders = pendingOrdersList.filter((order: any) => order.status === 'pending').length
-      }
-
       setKpiData({
         totalProducts: productTotal || 0,
         totalValue,
-        lowStockCount,
-        pendingOrders
       })
     } catch (error) {
       console.error('加载KPI数据失败:', error)
@@ -327,90 +304,6 @@ const Dashboard: React.FC = () => {
       prefix: '¥',
       icon: <ShoppingCartOutlined style={{ fontSize: 32, color: '#28a745' }} />,
     },
-    {
-      title: '低库存商品',
-      value: kpiData.lowStockCount,
-      icon: <WarningOutlined style={{ fontSize: 32, color: '#ffc107' }} />,
-    },
-    {
-      title: '待处理订单',
-      value: kpiData.pendingOrders,
-      icon: <ClockCircleOutlined style={{ fontSize: 32, color: '#dc3545' }} />,
-    }
-  ]
-
-  // 库存预警表格列
-  const alertColumns = [
-    {
-      title: '商品名称',
-      dataIndex: 'product_name',
-      align: 'center' as const,
-      key: 'productName',
-      width: '10%',
-      render: (text: string) => text ? <span style={{ fontWeight: 500 }}>{text}</span> : '-',
-      ellipsis: true
-    },
-    {
-      title: 'SKU',
-      dataIndex: 'product_sku',
-      key: 'sku',
-      width: '5%',
-      align: 'center' as const,
-      render: (text: string) => text || '-'
-    },
-    {
-      title: '当前库存',
-      dataIndex: 'current_stock',
-      key: 'currentStock',
-      width: '4%',
-      align: 'center' as const,
-      render: (value: number) => (
-        <span style={{ fontWeight: 'bold', fontSize: '14px' }}>{value ?? 0}</span>
-      )
-    },
-    {
-      title: '最低库存',
-      dataIndex: 'min_stock',
-      key: 'minStock',
-      width: '4%',
-      align: 'center' as const
-    },
-    {
-      title: '预警',
-      dataIndex: 'alert_type',
-      key: 'alertType',
-      width: '3%',
-      align: 'center' as const,
-      render: (type: 'low_stock' | 'out_of_stock' | 'over_stock') => {
-        if (type === 'out_of_stock') {
-          return <Tag color="error">缺货</Tag>
-        } else if (type === 'over_stock') {
-          return <Tag color="warning">超储</Tag>
-        } else {
-          return <Tag color="warning">低库存</Tag>
-        }
-      }
-    },
-    {
-      title: '操作',
-      key: 'action',
-      fixed: 'right' as const,
-      align: 'center' as const,
-      width: '5%',
-      render: (_: any, record: StockAlert) => (
-        <Space size="small">
-          <Tooltip title="查看商品详情">
-            <Button
-              type="link"
-              size="small"
-              shape="circle"
-              icon={<ArrowRightOutlined />}
-              onClick={() => navigate(`/inventory?productId=${record.product_id}`)}
-            />
-          </Tooltip>
-        </Space>
-      )
-    }
   ]
 
   // 快捷操作
@@ -418,8 +311,6 @@ const Dashboard: React.FC = () => {
     { title: '商品入库', color: '#28a745', path: '/inventory/inbound' },
     { title: '商品出库', color: '#dc3545', path: '/inventory/outbound' },
     { title: '库存盘点', color: '#ffc107', path: '/inventory/check' },
-    { title: '采购订单', color: '#003366', path: '/procurement/orders' },
-    { title: '供应商管理', color: '#17a2b8', path: '/procurement/suppliers' },
     { title: '报表中心', color: '#6f42c1', path: '/reports/inventory' }
   ]
 
@@ -432,13 +323,7 @@ const Dashboard: React.FC = () => {
           <Col xs={24} sm={12} lg={6.5} key={index}>
             <Card
               hoverable
-              onClick={() => {
-                // 待处理订单点击跳转到采购订单页面并筛选待审核订单
-                if (item.title === '待处理订单') {
-                  navigate('/procurement/orders?status=pending')
-                }
-              }}
-              style={{ cursor: item.title === '待处理订单' ? 'pointer' : 'default' }}
+              style={{ cursor: 'default' }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -460,9 +345,9 @@ const Dashboard: React.FC = () => {
         ))}
 
         {/* 快捷操作 */}
-        <Col xs={24} lg={8}>
+        <Col xs={24} lg={25}>
           <Card title="快捷操作" style={{ height: '100%' }}>
-            <Row gutter={[8, 8]}>
+            <Row gutter={[15, 15]}>
               {quickActions.map((action, index) => (
                 <Col span={12} key={index}>
                   <Button
@@ -472,7 +357,7 @@ const Dashboard: React.FC = () => {
                       backgroundColor: action.color,
                       borderColor: action.color,
                       height: 48,
-                      fontSize: 14
+                      fontSize: 18
                     }}
                     onClick={() => navigate(action.path)}
                   >
@@ -481,31 +366,6 @@ const Dashboard: React.FC = () => {
                 </Col>
               ))}
             </Row>
-          </Card>
-        </Col>
-
-        {/* 库存预警 */}
-        <Col xs={24} lg={16}>
-          <Card
-            title="库存预警"
-            extra={
-              <Button type="link" onClick={() => navigate('/inventory')}>
-                查看全部
-              </Button>
-            }
-          >
-            <Table
-              columns={alertColumns}
-              dataSource={stockAlerts}
-              loading={loading}
-              pagination={false}
-              size="small"
-              rowKey={(record) => record.product_id?.toString() || record.id?.toString() || ''}
-              scroll={{ x: 590 }}
-              locale={{
-                emptyText: '暂无库存预警'
-              }}
-            />
           </Card>
         </Col>
 
@@ -567,6 +427,8 @@ const Dashboard: React.FC = () => {
                   <Select.Option value="delete_product">删除商品</Select.Option>
                   <Select.Option value="inbound">商品入库</Select.Option>
                   <Select.Option value="outbound">商品出库</Select.Option>
+                  <Select.Option value="batch_inbound">批量入库</Select.Option>
+                  <Select.Option value="batch_outbound">批量出库</Select.Option>
                   <Select.Option value="inventory_check">库存盘点</Select.Option>
                   <Select.Option value="inventory_adjust">库存调整</Select.Option>
                   <Select.Option value="create_purchase_order">创建采购订单</Select.Option>
@@ -610,6 +472,8 @@ const Dashboard: React.FC = () => {
                       'delete_product': { text: '删除商品', color: 'red' },
                       'inbound': { text: '商品入库', color: 'green' },
                       'outbound': { text: '商品出库', color: 'orange' },
+                      'batch_inbound': { text: '批量入库', color: 'green' },
+                      'batch_outbound': { text: '批量出库', color: 'orange' },
                       'inventory_check': { text: '库存盘点', color: 'purple' },
                       'inventory_adjust': { text: '库存调整', color: 'purple' },
                       'create_purchase_order': { text: '创建采购订单', color: 'blue' },
@@ -709,14 +573,13 @@ const Dashboard: React.FC = () => {
                   <Pagination
                     current={logsCurrentPage}
                     pageSize={logsPageSize}
-                    total={allMergedLogs.length}
+                    total={logsTotal}
                     showSizeChanger
                     showQuickJumper
                     showTotal={(total, range) => {
                       const mergedTotal = allMergedLogs.length
-                      const originalTotal = recentLogs.length
-                      if (mergedTotal < originalTotal) {
-                        return `显示 ${range[0]}-${range[1]} 条，共 ${mergedTotal} 条（已合并 ${originalTotal - mergedTotal} 条），原始记录共 ${originalTotal} 条`
+                      if (mergedTotal < logsTotal) {
+                        return `显示 ${range[0]}-${range[1]} 条，共 ${logsTotal} 条（当前页合并后 ${mergedTotal} 条）`
                       }
                       return `显示 ${range[0]}-${range[1]} 条，共 ${total} 条`
                     }}

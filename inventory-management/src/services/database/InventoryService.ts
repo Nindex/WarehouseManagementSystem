@@ -566,9 +566,6 @@ class InventoryService {
           
           // 出库时使用FIFO规则，记录客户和批次，并按 SN 维度记录出库明细
           if (data.customer_id) {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:543',message:'calling processOutboundWithFIFO',data:{productId:data.product_id,quantity:outQuantity,hasCustomerId:!!data.customer_id,serialNumbersCount:data.serial_numbers?.length||0,hasSerialNumbers:(data.serial_numbers?.length||0)>0,outboundPrice:data.outbound_price},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-            // #endregion
             await this.processOutboundWithFIFO(
               data.product_id,
               outQuantity,
@@ -580,9 +577,6 @@ class InventoryService {
               data.serial_numbers || [],
               data.outbound_price
             )
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:556',message:'processOutboundWithFIFO completed',data:{productId:data.product_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-            // #endregion
           }
         } else if (data.type === 'adjust') {
           newQuantity = data.quantity || 0
@@ -701,7 +695,7 @@ class InventoryService {
             notes: logNotes,
             sn_codes: snCodesForLog
           },
-          description: `${operationDesc}: 商品ID ${data.product_id}, 数量 ${data.quantity}, 库存从 ${currentQuantity} 变为 ${finalQuantity}${customerName ? `，客户：${customerName}` : ''}${storeName ? `，门店：${storeName}` : ''}`
+          description: `${operationDesc}: 数量 ${data.quantity}, 库存从 ${currentQuantity} 变为 ${finalQuantity}${customerName ? `，客户：${customerName}` : ''}${storeName ? `，门店：${storeName}` : ''}`
         }).catch(err => console.error('记录操作日志失败:', err))
 
         // 入库时，为每个SN码创建状态记录（status=0，未出库）
@@ -811,6 +805,198 @@ class InventoryService {
       })
     } catch (error) {
       console.error('调整库存失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 批量入库（使用事务一次性处理多个商品的SN码入库）
+   * @param items 批量入库的商品列表，每个商品包含SN码列表
+   * @param commonData 公共数据（位置、批次号、备注、操作人等）
+   * @returns 入库结果统计
+   */
+  async batchInbound(
+    items: Array<{
+      product_id: number
+      serial_numbers: string[]
+    }>,
+    commonData: {
+      location?: string
+      batch_number?: string
+      notes?: string
+      created_by?: number
+    }
+  ): Promise<{ successCount: number; failCount: number; errors: string[] }> {
+    try {
+      // 确保表结构存在
+      await this.ensureBalanceColumn()
+      await this.ensureBatchNumberColumn()
+      await this.ensureBatchTables()
+
+      let successCount = 0
+      let failCount = 0
+      const errors: string[] = []
+
+      // 生成批次号（所有商品共用一个批次号）
+      let batchNumber = commonData.batch_number
+      if (!batchNumber || !batchNumber.trim()) {
+        batchNumber = await this.generateBatchNumber()
+      }
+
+      // 获取当前时间戳
+      const now = new Date()
+      const currentTimestamp = 
+        now.getFullYear() + '-' +
+        String(now.getMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getDate()).padStart(2, '0') + ' ' +
+        String(now.getHours()).padStart(2, '0') + ':' +
+        String(now.getMinutes()).padStart(2, '0') + ':' +
+        String(now.getSeconds()).padStart(2, '0')
+
+      // 在事务中处理所有入库操作
+      await databaseService.transaction(async () => {
+        for (const item of items) {
+          if (!item.serial_numbers || item.serial_numbers.length === 0) {
+            continue
+          }
+
+          // 获取商品信息
+          const product = await databaseService.queryOne<{ sku: string; name: string }>(
+            'SELECT sku, name FROM products WHERE id = ?',
+            [item.product_id]
+          )
+
+          if (!product || !product.sku) {
+            failCount += item.serial_numbers.length
+            errors.push(`商品ID ${item.product_id}: 无法获取商品信息`)
+            continue
+          }
+
+          // 检查SN码是否已存在
+          const existingSNs = await databaseService.query<{ serial_number: string }>(
+            `SELECT serial_number 
+             FROM sn_status 
+             WHERE sku = ? AND serial_number IN (${item.serial_numbers.map(() => '?').join(',')})`,
+            [product.sku, ...item.serial_numbers]
+          )
+
+          const existingSNSet = new Set(existingSNs.map(row => row.serial_number.trim()))
+
+          // 处理每个SN码
+          for (const sn of item.serial_numbers) {
+            const trimmedSn = sn.trim()
+            if (!trimmedSn) continue
+
+            // 检查SN码是否重复
+            if (existingSNSet.has(trimmedSn)) {
+              failCount++
+              errors.push(`${product.name} - ${trimmedSn}: SN码已存在`)
+              continue
+            }
+
+            try {
+              // 获取当前库存
+              const currentInventory = await databaseService.queryOne<{ quantity: number }>(
+                'SELECT quantity FROM inventory WHERE product_id = ?',
+                [item.product_id]
+              )
+
+              const currentQuantity = currentInventory?.quantity || 0
+              const newQuantity = currentQuantity + 1
+
+              // 更新或插入库存记录
+              if (currentInventory) {
+                await databaseService.update(
+                  `UPDATE inventory 
+                   SET quantity = ?, location = COALESCE(?, location), 
+                       batch_number = ?, updated_at = CURRENT_TIMESTAMP 
+                   WHERE product_id = ?`,
+                  [newQuantity, commonData.location || null, batchNumber, item.product_id]
+                )
+              } else {
+                await databaseService.insert(
+                  `INSERT INTO inventory (product_id, quantity, location, batch_number, created_at, updated_at) 
+                   VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+                  [item.product_id, newQuantity, commonData.location || null, batchNumber]
+                )
+              }
+
+              // 更新或插入批次记录
+              const existingBatch = await databaseService.queryOne<{ id: number; quantity: number }>(
+                'SELECT id, quantity FROM inventory_batches WHERE product_id = ? AND batch_number = ?',
+                [item.product_id, batchNumber]
+              )
+
+              if (existingBatch) {
+                await databaseService.update(
+                  `UPDATE inventory_batches 
+                   SET quantity = quantity + 1, location = COALESCE(?, location),
+                       updated_at = ? 
+                   WHERE id = ?`,
+                  [commonData.location || null, currentTimestamp, existingBatch.id]
+                )
+              } else {
+                await databaseService.insert(
+                  `INSERT INTO inventory_batches 
+                   (product_id, batch_number, quantity, location, inbound_date, created_at, updated_at) 
+                   VALUES (?, ?, 1, ?, ?, ?, ?)`,
+                  [item.product_id, batchNumber, commonData.location || null, currentTimestamp, currentTimestamp, currentTimestamp]
+                )
+              }
+
+              // 记录库存变动
+              await databaseService.insert(
+                `INSERT INTO inventory_transactions 
+                 (product_id, type, quantity, balance, batch_number, notes, created_by, created_at) 
+                 VALUES (?, 'in', 1, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                [item.product_id, newQuantity, batchNumber, commonData.notes || null, commonData.created_by || null]
+              )
+
+              // 创建SN码状态记录
+              await databaseService.insert(
+                `INSERT INTO sn_status 
+                 (product_id, sku, serial_number, batch_number, status, inbound_date, created_at, updated_at) 
+                 VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+                [item.product_id, product.sku, trimmedSn, batchNumber, currentTimestamp, currentTimestamp, currentTimestamp]
+              )
+
+              successCount++
+              // 添加到已存在集合，防止同一批次中重复
+              existingSNSet.add(trimmedSn)
+
+            } catch (snError: any) {
+              failCount++
+              if (snError?.message?.includes('UNIQUE constraint')) {
+                errors.push(`${product.name} - ${trimmedSn}: SN码重复`)
+              } else {
+                errors.push(`${product.name} - ${trimmedSn}: ${snError?.message || '入库失败'}`)
+              }
+            }
+          }
+        }
+      })
+
+      // 记录操作日志（异步，不阻塞）
+      if (successCount > 0) {
+        SystemLogService.createLog({
+          user_id: commonData.created_by || null,
+          operation_type: 'batch_inbound',
+          table_name: 'inventory',
+          new_values: {
+            batch_number: batchNumber,
+            success_count: successCount,
+            fail_count: failCount,
+            location: commonData.location,
+            notes: commonData.notes
+          },
+          description: `批量入库: 成功 ${successCount} 个，失败 ${failCount} 个，批次号 ${batchNumber}`
+        }).catch(err => console.error('记录批量入库日志失败:', err))
+      }
+
+      return { successCount, failCount, errors }
+
+    } catch (error) {
+      console.error('批量入库失败:', error)
       throw error
     }
   }
@@ -1170,19 +1356,11 @@ class InventoryService {
     outboundPrice?: number
   ): Promise<void> {
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1104',message:'processOutboundWithFIFO entry',data:{productId,quantity,customerId,serialNumbersCount:serialNumbers.length,hasSerialNumbers:serialNumbers.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      
       // 获取商品的 SKU（用于更新 sn_status）
       const product = await databaseService.queryOne<{ sku: string }>(
         'SELECT sku FROM products WHERE id = ?',
         [productId]
       )
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1117',message:'product query result',data:{productId,hasProduct:!!product,sku:product?.sku},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       
       if (!product || !product.sku) {
         throw new Error('无法获取商品SKU信息')
@@ -1202,10 +1380,6 @@ class InventoryService {
       
       // 如果提供了SN码，优先使用SN码对应的批次
       if (serialNumbers && serialNumbers.length > 0) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1140',message:'using serialNumbers path',data:{productId,sku:product.sku,serialNumbersCount:serialNumbers.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        
         // 从sn_status表获取SN码对应的批次号
         const snBatchInfo = await databaseService.query<{ batch_number: string | null; serial_number: string }>(
           `SELECT batch_number, serial_number 
@@ -1214,17 +1388,9 @@ class InventoryService {
           [product.sku, ...serialNumbers]
         )
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1148',message:'sn_status query result',data:{productId,sku:product.sku,snBatchInfoCount:snBatchInfo.length,snBatchInfo:snBatchInfo.map(s=>({sn:s.serial_number,batch:s.batch_number}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        
         if (snBatchInfo.length > 0) {
           // 获取去重后的批次号列表
           const batchNumbers = [...new Set(snBatchInfo.map(s => s.batch_number).filter(bn => bn !== null))] as string[]
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1154',message:'unique batch numbers from SN',data:{productId,batchNumbersCount:batchNumbers.length,batchNumbers},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
           
           if (batchNumbers.length > 0) {
             // 先查询这些批次号是否存在（不管quantity），用于诊断和修复数据不一致
@@ -1234,10 +1400,6 @@ class InventoryService {
                ORDER BY inbound_date ASC, id ASC`,
               [productId, ...batchNumbers]
             )
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1178',message:'all batches for SN batch numbers (including quantity=0)',data:{productId,batchesCount:allBatchesForSN.length,batchNumbersQueried:batchNumbers,allBatches:allBatchesForSN.map(b=>({id:b.id,batchNumber:b.batch_number,quantity:b.quantity,productId:b.product_id}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
-            // #endregion
             
             // 检查数据不一致：如果批次存在但quantity=0，需要更新sn_status
             if (allBatchesForSN.length > 0) {
@@ -1254,10 +1416,6 @@ class InventoryService {
                    WHERE sku = ? AND batch_number IN (${batchNumbersWithoutStock.map(() => '?').join(',')}) AND status = 0`,
                   [currentTimestamp, currentTimestamp, product.sku, ...batchNumbersWithoutStock]
                 )
-                
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1195',message:'fixed data inconsistency: updated sn_status for batches without stock',data:{productId,sku:product.sku,batchNumbersUpdated:batchNumbersWithoutStock},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
-                // #endregion
               }
               
               // 使用有库存的批次
@@ -1265,24 +1423,13 @@ class InventoryService {
             } else {
               // 批次不存在于inventory_batches，说明数据不一致
               // 这种情况下，应该使用FIFO查询所有批次，而不是失败
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1204',message:'SN batch numbers not found in inventory_batches, will fallback to FIFO',data:{productId,sku:product.sku,batchNumbersNotFound:batchNumbers},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'F'})}).catch(()=>{});
-              // #endregion
             }
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1209',message:'batches from SN batch numbers after fix',data:{productId,batchesCount:batches.length,batchesFound:batches.map(b=>({id:b.id,batchNumber:b.batch_number,quantity:b.quantity}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
           }
         }
       }
       
       // 如果没有找到批次（SN码路径未找到或未提供SN码），使用FIFO查询所有批次
       if (batches.length === 0) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1170',message:'fallback to FIFO query all batches',data:{productId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-        
         // 获取所有有库存的批次，按入库时间升序排列（FIFO）
         batches = await databaseService.query<InventoryBatch>(
           `SELECT * FROM inventory_batches 
@@ -1290,16 +1437,9 @@ class InventoryService {
            ORDER BY inbound_date ASC, id ASC`,
           [productId]
         )
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1177',message:'FIFO all batches query result',data:{productId,batchesCount:batches.length,batchesFound:batches.map(b=>({id:b.id,batchNumber:b.batch_number,quantity:b.quantity}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
       }
 
       if (batches.length === 0) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/ee9574d2-b528-47ec-bf0f-23477ab42638',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'InventoryService.ts:1184',message:'no batches found error',data:{productId,sku:product.sku,hasSerialNumbers:serialNumbers.length>0,serialNumbersCount:serialNumbers.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         throw new Error('没有可用的批次库存')
       }
 

@@ -2,7 +2,6 @@
 export { default as UserService } from './UserService'
 export { default as ProductService } from './ProductService'
 export { default as InventoryService } from './InventoryService'
-export { default as ProcurementService } from './ProcurementService'
 export { default as CustomerService } from './CustomerService'
 export { default as SystemSettingService } from './SystemSettingService'
 
@@ -10,5 +9,4 @@ export { default as SystemSettingService } from './SystemSettingService'
 export * from './UserService'
 export * from './ProductService'
 export * from './InventoryService'
-export * from './ProcurementService'
 export * from './CustomerService'
