@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "构建主进程 (Watch)",
+      "type": "shell",
+      "command": "npm run build:main:watch",
+      "options": {
+        "cwd": "${workspaceFolder}/inventory-management",
+        "env": {
+          "NODE_ENV": "development",
+          "MAIN_WINDOW_VITE_DEV_SERVER_URL": "http://localhost:3000",
+          "MAIN_WINDOW_VITE_NAME": "main_window"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*building.*|.*watching.*",
+          "endsPattern": ".*built in.*|.*watching for file changes.*"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "构建 Preload (Watch)",
+      "type": "npm",
+      "script": "build:preload:watch",
+      "path": "inventory-management",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*building.*|.*watching.*",
+          "endsPattern": ".*built in.*|.*watching for file changes.*"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "构建所有进程 (Watch)",
+      "dependsOn": [
+        "构建主进程 (Watch)",
+        "构建 Preload (Watch)"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent"
+      }
+    }
+  ]
+}
+

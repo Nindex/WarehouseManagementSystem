@@ -1,0 +1,8 @@
+{
+  "debug.javascript.autoAttachFilter": "disabled",
+  "debug.javascript.autoAttachSmartPattern": [],
+  "debug.node.autoAttach": "disabled",
+  "debug.javascript.unmapMissingSources": true,
+  "debug.terminal.clearBeforeReusing": true
+}
+

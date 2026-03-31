@@ -30,8 +30,40 @@ async function batch(statements: { sql: string; params: any[] }[]): Promise<void
   if (res && res.success === false) throw new Error(res.error || '数据库批处理失败')
 }
 
+// 事务锁，防止并发事务
+let transactionLock = false
+
 async function transaction<T>(fn: () => Promise<T>): Promise<T> {
-  return fn()
+  // 等待其他事务完成
+  while (transactionLock) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  
+  transactionLock = true
+  try {
+    // 开始事务
+    await api?.dbExec?.('BEGIN TRANSACTION')
+    
+    try {
+      // 执行事务内的操作
+      const result = await fn()
+      
+      // 提交事务
+      await api?.dbExec?.('COMMIT')
+      
+      return result
+    } catch (error) {
+      // 回滚事务
+      try {
+        await api?.dbExec?.('ROLLBACK')
+      } catch (rollbackError) {
+        console.error('回滚事务失败:', rollbackError)
+      }
+      throw error
+    }
+  } finally {
+    transactionLock = false
+  }
 }
 
 async function initialize(opts?: { reset?: boolean; seed?: boolean }): Promise<void> {

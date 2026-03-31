@@ -191,7 +191,7 @@ class CustomerService {
   /**
    * 创建客户
    */
-  async createCustomer(customerData: CreateCustomerData): Promise<Customer> {
+  async createCustomer(customerData: CreateCustomerData, userId?: number): Promise<Customer> {
     try {
       await this.ensureTableExists()
       
@@ -225,10 +225,11 @@ class CustomerService {
       
       // 记录操作日志（异步，不阻塞主流程）
       SystemLogService.createLog({
+        user_id: userId,
         operation_type: 'create_customer',
         table_name: 'customers',
         record_id: customerId,
-        new_values: { name: newCustomer.name },
+        new_values: { name: newCustomer.name, contact_person: newCustomer.contact_person, phone: newCustomer.phone },
         description: `创建客户: ${newCustomer.name}`
       }).catch(err => console.error('记录操作日志失败:', err))
       
@@ -242,7 +243,7 @@ class CustomerService {
   /**
    * 更新客户
    */
-  async updateCustomer(id: number, data: Partial<CreateCustomerData> & { status?: number }): Promise<Customer> {
+  async updateCustomer(id: number, data: Partial<CreateCustomerData> & { status?: number }, userId?: number): Promise<Customer> {
     try {
       await this.ensureTableExists()
       
@@ -329,11 +330,12 @@ class CustomerService {
       }
       
       SystemLogService.createLog({
+        user_id: userId,
         operation_type: 'update_customer',
         table_name: 'customers',
         record_id: id,
-        old_values: { name: oldCustomer.name, status: oldCustomer.status },
-        new_values: { name: updatedCustomer.name, status: updatedCustomer.status },
+        old_values: { name: oldCustomer.name, status: oldCustomer.status, contact_person: oldCustomer.contact_person, phone: oldCustomer.phone },
+        new_values: { name: updatedCustomer.name, status: updatedCustomer.status, contact_person: updatedCustomer.contact_person, phone: updatedCustomer.phone },
         description: description
       }).catch(err => console.error('记录操作日志失败:', err))
       
@@ -598,7 +600,7 @@ class CustomerService {
   /**
    * 创建门店
    */
-  async createStore(storeData: CreateStoreData): Promise<CustomerStore> {
+  async createStore(storeData: CreateStoreData, userId?: number): Promise<CustomerStore> {
     try {
       await this.ensureTableExists()
       
@@ -636,12 +638,16 @@ class CustomerService {
 
       // 记录创建门店日志（异步，不阻塞主流程）
       SystemLogService.createLog({
+        user_id: userId,
         operation_type: 'create_store',
         table_name: 'customer_stores',
         record_id: storeId,
         new_values: { 
           customer_id: newStore.customer_id,
-          store_name: newStore.store_name
+          store_name: newStore.store_name,
+          address: newStore.address,
+          contact_person: newStore.contact_person,
+          phone: newStore.phone
         },
         description: `创建门店: ${newStore.store_name} (客户ID: ${newStore.customer_id})`
       }).catch(err => console.error('记录操作日志失败:', err))
@@ -660,7 +666,7 @@ class CustomerService {
   /**
    * 更新门店
    */
-  async updateStore(id: number, data: Partial<CreateStoreData> & { status?: number }): Promise<CustomerStore> {
+  async updateStore(id: number, data: Partial<CreateStoreData> & { status?: number }, userId?: number): Promise<CustomerStore> {
     try {
       await this.ensureTableExists()
       
@@ -696,6 +702,16 @@ class CustomerService {
         throw new Error('没有要更新的字段')
       }
       
+      // 先获取旧值用于日志
+      const oldStore = await databaseService.queryOne<CustomerStore>(
+        'SELECT * FROM customer_stores WHERE id = ?',
+        [id]
+      )
+      
+      if (!oldStore) {
+        throw new Error('门店不存在')
+      }
+      
       const now = new Date()
       const currentTimestamp = 
         now.getFullYear() + '-' +
@@ -714,16 +730,6 @@ class CustomerService {
       )
       
       if (affectedRows === 0) {
-        throw new Error('门店不存在')
-      }
-      
-      // 先获取旧值用于日志
-      const oldStore = await databaseService.queryOne<CustomerStore>(
-        'SELECT * FROM customer_stores WHERE id = ?',
-        [id]
-      )
-      
-      if (!oldStore) {
         throw new Error('门店不存在')
       }
       
@@ -749,18 +755,25 @@ class CustomerService {
       }
       
       SystemLogService.createLog({
+        user_id: userId,
         operation_type: 'update_store',
         table_name: 'customer_stores',
         record_id: id,
         old_values: { 
           store_name: oldStore.store_name, 
           status: oldStore.status,
-          customer_id: oldStore.customer_id
+          customer_id: oldStore.customer_id,
+          address: oldStore.address,
+          contact_person: oldStore.contact_person,
+          phone: oldStore.phone
         },
         new_values: { 
           store_name: updatedStore.store_name, 
           status: updatedStore.status,
-          customer_id: updatedStore.customer_id
+          customer_id: updatedStore.customer_id,
+          address: updatedStore.address,
+          contact_person: updatedStore.contact_person,
+          phone: updatedStore.phone
         },
         description: description
       }).catch(err => console.error('记录操作日志失败:', err))
@@ -775,7 +788,7 @@ class CustomerService {
   /**
    * 删除门店（软删除：仅将status置为0）
    */
-  async deleteStore(id: number): Promise<void> {
+  async deleteStore(id: number, userId?: number): Promise<void> {
     try {
       await this.ensureTableExists()
 
@@ -809,6 +822,7 @@ class CustomerService {
 
       // 记录操作日志（异步）
       SystemLogService.createLog({
+        user_id: userId,
         operation_type: 'delete_store',
         table_name: 'customer_stores',
         record_id: id,

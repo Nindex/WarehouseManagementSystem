@@ -1218,24 +1218,31 @@ class InventoryService {
            COALESCE(i.quantity, 0) as current_stock,
            CASE 
              WHEN COALESCE(i.quantity, 0) = 0 THEN 'out_of_stock'
-             WHEN COALESCE(i.quantity, 0) <= p.min_stock THEN 'low_stock'
-             WHEN COALESCE(i.quantity, 0) >= p.max_stock THEN 'over_stock'
+             WHEN COALESCE(i.quantity, 0) >= p.max_stock AND p.max_stock > 0 THEN 'over_stock'
+             WHEN COALESCE(i.quantity, 0) <= p.min_stock AND p.min_stock > 0 THEN 'low_stock'
              ELSE 'normal'
            END as alert_type,
            CASE 
              WHEN COALESCE(i.quantity, 0) = 0 THEN '缺货'
-             WHEN COALESCE(i.quantity, 0) <= p.min_stock THEN '低库存'
-             WHEN COALESCE(i.quantity, 0) >= p.max_stock THEN '超储'
+             WHEN COALESCE(i.quantity, 0) >= p.max_stock AND p.max_stock > 0 THEN '超储'
+             WHEN COALESCE(i.quantity, 0) <= p.min_stock AND p.min_stock > 0 THEN '低库存'
              ELSE '正常'
            END as alert_description
          FROM products p 
          LEFT JOIN inventory i ON p.id = i.product_id 
          WHERE p.status = 1 AND (
-           COALESCE(i.quantity, 0) <= p.min_stock OR 
-           COALESCE(i.quantity, 0) >= p.max_stock OR
-           COALESCE(i.quantity, 0) = 0
+           COALESCE(i.quantity, 0) = 0 OR
+           (COALESCE(i.quantity, 0) <= p.min_stock AND p.min_stock > 0) OR 
+           (COALESCE(i.quantity, 0) >= p.max_stock AND p.max_stock > 0)
          )
-         ORDER BY current_stock ASC`
+         ORDER BY 
+           CASE 
+             WHEN COALESCE(i.quantity, 0) = 0 THEN 0
+             WHEN COALESCE(i.quantity, 0) <= p.min_stock THEN 1
+             WHEN COALESCE(i.quantity, 0) >= p.max_stock THEN 2
+             ELSE 3
+           END,
+           current_stock ASC`
       )
 
       return alerts
@@ -1455,11 +1462,16 @@ class InventoryService {
 
         const batchQuantity = Math.min(batch.quantity, remainingQuantity)
         
-        // 更新批次库存
-        await databaseService.update(
-          'UPDATE inventory_batches SET quantity = quantity - ?, updated_at = ? WHERE id = ?',
-          [batchQuantity, currentTimestamp, batch.id]
+        // 更新批次库存（使用条件更新，确保不会变成负数）
+        const updateResult = await databaseService.update(
+          'UPDATE inventory_batches SET quantity = quantity - ?, updated_at = ? WHERE id = ? AND quantity >= ?',
+          [batchQuantity, currentTimestamp, batch.id, batchQuantity]
         )
+        
+        // 如果更新失败（库存不足），抛出错误
+        if (updateResult === 0) {
+          throw new Error(`批次 ${batch.batch_number} 库存不足，无法出库 ${batchQuantity} 个商品`)
+        }
 
         // 创建出库记录
         const outboundId = await databaseService.insert(

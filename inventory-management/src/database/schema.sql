@@ -216,19 +216,6 @@ CREATE TABLE system_logs (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
--- 客户表
-CREATE TABLE customers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    contact_person TEXT,
-    phone TEXT,
-    email TEXT,
-    address TEXT,
-    status INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
 -- 客户门店表
 CREATE TABLE customer_stores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -354,8 +341,10 @@ CREATE INDEX idx_sn_status_batch ON sn_status(batch_number);
 CREATE INDEX idx_sn_status_status ON sn_status(status);
 
 -- 插入默认数据
+-- 默认密码使用 bcrypt 哈希，原始密码为 admin123
+-- 注意：首次登录后建议立即修改密码
 INSERT INTO users (username, password, name, email) VALUES 
-('admin', 'admin123', '系统管理员', 'admin@system.com');
+('admin', '$2a$10$rMqnYY8GtOgHMfPCIG.qRe7yCZPYGz8QQPJYVBzYJxk8sYUxYKJGe', '系统管理员', 'admin@system.com');
 
 INSERT INTO products (sku, name, category_id, description, unit, cost_price, selling_price, min_stock, max_stock) VALUES 
 ('PROD001', '无线鼠标', NULL, '2.4G无线鼠标', '个', 45.00, 89.00, 10, 100),

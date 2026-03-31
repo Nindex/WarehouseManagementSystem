@@ -364,6 +364,12 @@ class ProductService {
    */
   async updateProduct(id: number, data: UpdateProductData, userId?: number): Promise<Product> {
     try {
+      // 先获取旧值用于日志
+      const oldProduct = await this.getProductById(id)
+      if (!oldProduct) {
+        throw new Error('产品不存在')
+      }
+      
       const fields: string[] = []
       const values: any[] = []
       
@@ -431,8 +437,27 @@ class ProductService {
         operation_type: 'update_product',
         table_name: 'products',
         record_id: id,
-        new_values: data,
-        description: `${updatedProduct.name} (SKU: ${updatedProduct.sku})`
+        old_values: { 
+          name: oldProduct.name, 
+          sku: oldProduct.sku,
+          category_id: oldProduct.category_id,
+          cost_price: oldProduct.cost_price,
+          selling_price: oldProduct.selling_price,
+          min_stock: oldProduct.min_stock,
+          max_stock: oldProduct.max_stock,
+          status: oldProduct.status
+        },
+        new_values: { 
+          name: updatedProduct.name, 
+          sku: updatedProduct.sku,
+          category_id: updatedProduct.category_id,
+          cost_price: updatedProduct.cost_price,
+          selling_price: updatedProduct.selling_price,
+          min_stock: updatedProduct.min_stock,
+          max_stock: updatedProduct.max_stock,
+          status: updatedProduct.status
+        },
+        description: `更新商品: ${updatedProduct.name} (SKU: ${updatedProduct.sku})`
       }).catch(err => console.error('记录操作日志失败:', err))
       
       return updatedProduct

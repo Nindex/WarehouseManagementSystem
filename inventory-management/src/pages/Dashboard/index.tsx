@@ -12,15 +12,7 @@ import { fetchProducts } from '@/store/slices/inventorySlice'
 import { inventoryAPI, systemLogAPI, productAPI } from '@/services/api'
 import type { SystemLog } from '@/services/database/SystemLogService'
 import dayjs from 'dayjs'
-
-// 合并后的日志接口
-interface MergedLog extends SystemLog {
-  isMerged?: boolean
-  mergedCount?: number
-  mergedLogs?: SystemLog[]
-  timeRange?: string
-  totalQuantity?: number
-}
+import { mergeLogs, operationTypeMap, MergedLog } from '@/utils/logUtils'
 
 const Dashboard: React.FC = () => {
   const dispatch = useAppDispatch()
@@ -112,114 +104,8 @@ const Dashboard: React.FC = () => {
     return {}
   }
 
-  // 合并同一批次的入库记录（参考 StockTransactionModal 的逻辑）
-  const allMergedLogs = useMemo(() => {
-    if (!recentLogs || recentLogs.length === 0) return []
-
-    const merged: MergedLog[] = []
-    const processed = new Set<number>()
-
-    for (let i = 0; i < recentLogs.length; i++) {
-      if (processed.has(recentLogs[i].id)) continue
-
-      const currentLog = recentLogs[i]
-
-      // 只对入库操作（operation_type='inbound'）且数量为1的记录进行合并判断
-      const currentNewValues = parseNewValues(currentLog.new_values)
-      const currentQuantity = (currentNewValues as any)?.quantity || 0
-      const shouldTryMerge = currentLog.operation_type === 'inbound' && currentQuantity === 1
-
-      if (!shouldTryMerge) {
-        // 不需要合并的记录直接添加
-        merged.push(currentLog)
-        processed.add(currentLog.id)
-        continue
-      }
-
-      // 查找可以合并的记录（同一商品、同一批次号）
-      const mergeGroup: SystemLog[] = [currentLog]
-      processed.add(currentLog.id)
-      const currentBatchNumber = (currentNewValues as any)?.batch_number || null
-      const currentRecordId = currentLog.record_id
-
-      for (let j = i + 1; j < recentLogs.length; j++) {
-        if (processed.has(recentLogs[j].id)) continue
-
-        const otherLog = recentLogs[j]
-        const otherNewValues = parseNewValues(otherLog.new_values)
-        const otherQuantity = (otherNewValues as any)?.quantity || 0
-        const otherBatchNumber = (otherNewValues as any)?.batch_number || null
-
-        // 合并条件：相同的商品、都是入库且数量为1、相同的批次号
-        const canMerge =
-          otherLog.operation_type === 'inbound' &&
-          otherQuantity === 1 &&
-          otherLog.record_id === currentRecordId &&
-          otherBatchNumber === currentBatchNumber
-
-        if (canMerge) {
-          mergeGroup.push(otherLog)
-          processed.add(otherLog.id)
-        } else {
-          // 批次号不同或商品不同，说明不是同一批次，停止查找
-          break
-        }
-      }
-
-      // 按时间正序排序合并组
-      mergeGroup.sort((a, b) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf())
-
-      // 如果只有一条，直接添加；否则合并
-      if (mergeGroup.length === 1) {
-        merged.push(currentLog)
-      } else {
-        // 合并多条记录
-        const totalQuantity = mergeGroup.reduce((sum, log) => {
-          const nv = parseNewValues(log.new_values)
-          return sum + ((nv as any)?.quantity || 0)
-        }, 0)
-
-        // 计算合并后的库存变化
-        // 第一条记录的 old_quantity 是入库前的库存
-        const firstLogNewValues = parseNewValues(mergeGroup[0].new_values)
-        const oldQuantity = (firstLogNewValues as any)?.old_quantity ?? 0
-
-        // 最后一条记录的 new_quantity 是入库后的库存
-        const lastLogNewValues = parseNewValues(mergeGroup[mergeGroup.length - 1].new_values)
-        const newQuantity = (lastLogNewValues as any)?.new_quantity ?? (oldQuantity + totalQuantity)
-
-        // 使用第一条记录的时间作为统一时间（同一批次下的SN码使用统一时间）
-        const firstTime = dayjs(mergeGroup[0].created_at)
-        const timeRange = firstTime.format('YYYY-MM-DD HH:mm:ss')
-
-        const mergedLog: MergedLog = {
-          ...currentLog,
-          isMerged: true,
-          mergedCount: mergeGroup.length,
-          mergedLogs: mergeGroup,
-          timeRange: timeRange,
-          totalQuantity,
-          created_at: mergeGroup[0].created_at, // 使用第一条的时间（统一时间）
-          // 存储合并后的库存值，用于更新描述
-          new_values: JSON.stringify({
-            ...firstLogNewValues,
-            quantity: totalQuantity,
-            old_quantity: oldQuantity,
-            new_quantity: newQuantity
-          })
-        }
-
-        merged.push(mergedLog)
-      }
-    }
-
-    // 合并后按时间倒序排序（最新的在前）
-    return merged.sort((a, b) => {
-      const timeA = dayjs(a.created_at).valueOf()
-      const timeB = dayjs(b.created_at).valueOf()
-      return timeB - timeA
-    })
-  }, [recentLogs])
+  // 使用公共的日志合并函数
+  const allMergedLogs = useMemo(() => mergeLogs(recentLogs), [recentLogs])
 
   // 由于使用后端分页，直接使用合并后的数据作为显示数据
   const mergedLogs = allMergedLogs
@@ -431,15 +317,6 @@ const Dashboard: React.FC = () => {
                   <Select.Option value="batch_outbound">批量出库</Select.Option>
                   <Select.Option value="inventory_check">库存盘点</Select.Option>
                   <Select.Option value="inventory_adjust">库存调整</Select.Option>
-                  <Select.Option value="create_purchase_order">创建采购订单</Select.Option>
-                  <Select.Option value="update_purchase_order_status">更新采购订单状态</Select.Option>
-                  <Select.Option value="approve_purchase_order">审核采购订单</Select.Option>
-                  <Select.Option value="reject_purchase_order">拒绝采购订单</Select.Option>
-                  <Select.Option value="create_purchase_return">创建采购退货</Select.Option>
-                  <Select.Option value="approve_purchase_return">审核采购退货</Select.Option>
-                  <Select.Option value="reject_purchase_return">拒绝采购退货</Select.Option>
-                  <Select.Option value="create_supplier">创建供应商</Select.Option>
-                  <Select.Option value="delete_supplier">删除供应商</Select.Option>
                   <Select.Option value="create_customer">创建客户</Select.Option>
                   <Select.Option value="update_customer">更新客户</Select.Option>
                   <Select.Option value="delete_customer">删除客户</Select.Option>
@@ -466,33 +343,6 @@ const Dashboard: React.FC = () => {
                     const serialNumber = (logsCurrentPage - 1) * logsPageSize + index + 1
                     
                     // 操作类型映射
-                    const operationTypeMap: Record<string, { text: string; color: string }> = {
-                      'create_product': { text: '创建商品', color: 'blue' },
-                      'update_product': { text: '更新商品', color: 'cyan' },
-                      'delete_product': { text: '删除商品', color: 'red' },
-                      'inbound': { text: '商品入库', color: 'green' },
-                      'outbound': { text: '商品出库', color: 'orange' },
-                      'batch_inbound': { text: '批量入库', color: 'green' },
-                      'batch_outbound': { text: '批量出库', color: 'orange' },
-                      'inventory_check': { text: '库存盘点', color: 'purple' },
-                      'inventory_adjust': { text: '库存调整', color: 'purple' },
-                      'create_purchase_order': { text: '创建采购订单', color: 'blue' },
-                      'update_purchase_order_status': { text: '更新采购订单状态', color: 'cyan' },
-                      'approve_purchase_order': { text: '审核采购订单', color: 'green' },
-                      'reject_purchase_order': { text: '拒绝采购订单', color: 'red' },
-                      'create_purchase_return': { text: '创建采购退货', color: 'orange' },
-                      'approve_purchase_return': { text: '审核采购退货', color: 'green' },
-                      'reject_purchase_return': { text: '拒绝采购退货', color: 'red' },
-                      'create_supplier': { text: '创建供应商', color: 'blue' },
-                      'delete_supplier': { text: '删除供应商', color: 'red' },
-                      'create_customer': { text: '创建客户', color: 'blue' },
-                      'update_customer': { text: '更新客户', color: 'cyan' },
-                      'delete_customer': { text: '删除客户', color: 'red' },
-                      'update_store': { text: '更新门店', color: 'cyan' },
-                      'create_store': { text: '创建门店', color: 'blue' },
-                      'delete_store': { text: '删除门店', color: 'red' },
-                      'delete_serial_number': { text: '删除SN码', color: 'red' }
-                    }
                     const operationInfo = operationTypeMap[log.operation_type] || { text: log.operation_type, color: 'default' }
 
                     // 获取商品信息（用于替换描述中的商品ID）

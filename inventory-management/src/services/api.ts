@@ -812,6 +812,33 @@ export const customerAPI = {
 }
 
 // 数据库管理相关API
+// 允许清除的表名白名单（防止 SQL 注入）
+const ALLOWED_TABLES = [
+  'outbound_sn_items',
+  'outbound_records',
+  'inventory_transactions',
+  'inventory',
+  'inventory_batches',
+  'sn_status',
+  'purchase_return_items',
+  'purchase_returns',
+  'purchase_order_items',
+  'purchase_orders',
+  'sales_order_items',
+  'sales_orders',
+  'suppliers',
+  'customer_stores',
+  'customers',
+  'system_logs',
+  'categories',
+  'products'
+]
+
+// 验证表名是否在白名单中
+function validateTableName(tableName: string): boolean {
+  return ALLOWED_TABLES.includes(tableName)
+}
+
 export const databaseAPI = {
   clearAllData: async (tablesToClear?: string[]): Promise<ApiResponse<void>> => {
     try {
@@ -820,28 +847,15 @@ export const databaseAPI = {
       await databaseService.exec('PRAGMA foreign_keys = OFF')
 
       // 如果没有指定要清除的表，则清除所有业务数据表
-      const defaultTables = [
-        'outbound_sn_items',
-        'outbound_records',
-        'inventory_transactions',
-        'inventory',
-        'inventory_batches',
-        'sn_status',              // SN码状态表
-        'purchase_return_items',
-        'purchase_returns',
-        'purchase_order_items',
-        'purchase_orders',
-        'sales_order_items',      // 也引用 products
-        'sales_orders',           // 引用 customers
-        'suppliers',
-        'customer_stores',
-        'customers',
-        'system_logs',
-        'categories',
-        'products'
-      ]
+      const defaultTables = ALLOWED_TABLES
 
       const tables = tablesToClear && tablesToClear.length > 0 ? tablesToClear : defaultTables
+
+      // 验证所有表名都在白名单中
+      const invalidTables = tables.filter(t => !validateTableName(t))
+      if (invalidTables.length > 0) {
+        return { success: false, error: `无效的表名: ${invalidTables.join(', ')}` }
+      }
 
       // 定义清除顺序：先清除有外键引用的表，再清除被引用的表
       // 注意：所有引用 products 的表必须在 products 之前清除
@@ -917,9 +931,10 @@ export const databaseAPI = {
       
       for (const table of finalTables) {
         try {
-          // 先检查表是否存在（表名不能参数化，但来自配置应该是安全的）
+          // 先检查表是否存在（表名已通过白名单验证，安全）
           const tableExists = await databaseService.queryOne<{ name: string }>(
-            `SELECT name FROM sqlite_master WHERE type='table' AND name = '${table}'`
+            `SELECT name FROM sqlite_master WHERE type='table' AND name = ?`,
+            [table]
           )
           
           if (tableExists) {
@@ -974,10 +989,13 @@ export const databaseAPI = {
       // 重置自增ID（如果存在）
       if (finalTables.length > 0) {
         try {
-          // 使用参数化查询重置自增ID
+          // 使用参数化查询重置自增ID（表名已通过白名单验证）
           for (const table of finalTables) {
             try {
-              await databaseService.exec(`DELETE FROM sqlite_sequence WHERE name = '${table}'`)
+              await databaseService.update(
+                `DELETE FROM sqlite_sequence WHERE name = ?`,
+                [table]
+              )
             } catch {
               // 忽略单个表的错误
             }

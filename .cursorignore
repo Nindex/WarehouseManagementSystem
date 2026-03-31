@@ -1,7 +1,0 @@
-dist/
-inventory-management/.npm-cache/*
-.vite
-release
-node_modules
-package-lock.json
-.cursorignore

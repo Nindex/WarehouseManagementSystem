@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Electron 调试",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/inventory-management",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "windows": {
+        "runtimeExecutable": "npm.cmd"
+      },
+      "preLaunchTask": "构建所有进程 (Watch)",
+      "killBehavior": "forceful"
+    }
+  ]
+}
+

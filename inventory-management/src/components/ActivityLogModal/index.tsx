@@ -4,6 +4,12 @@ import { EyeOutlined, UpOutlined, DownOutlined } from '@ant-design/icons'
 import { systemLogAPI, productAPI, inventoryAPI } from '@/services/api'
 import dayjs from 'dayjs'
 import type { SystemLog } from '@/services/database/SystemLogService'
+import { 
+  MergedLog, 
+  mergeLogs, 
+  operationTypeMap, 
+  getFilteredOperationTypes 
+} from '@/utils/logUtils'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -38,116 +44,8 @@ const ActivityLogModal: React.FC<ActivityLogModalProps> = ({ visible, onCancel, 
   const [mergedNewValues, setMergedNewValues] = useState<any>({}) // 合并后的new_values
   const [productNameMap, setProductNameMap] = useState<Record<number, string>>({}) // 商品ID到商品名称的映射
   
-  // 日志合并逻辑
-  interface MergedLog extends SystemLog {
-    mergedCount?: number
-    mergedLogs?: SystemLog[]
-    isMerged?: boolean
-    timeRange?: string
-    totalQuantity?: number
-    allSNCodes?: string[]
-  }
-  
-  // 合并相同商品、相同批次、相同操作类型、时间相近的日志
-  const allMergedLogs = useMemo(() => {
-    if (!logs || logs.length === 0) return []
-    
-    // 只对库存相关操作进行合并
-    const inventoryOperations = ['inbound', 'outbound', 'inventory_check', 'inventory_adjust']
-    const merged: MergedLog[] = []
-    const processed = new Set<number>()
-    
-    for (let i = 0; i < logs.length; i++) {
-      if (processed.has(logs[i].id)) continue
-      
-      const currentLog = logs[i]
-      const shouldMerge = inventoryOperations.includes(currentLog.operation_type) && 
-                         currentLog.table_name === 'inventory'
-      
-      if (!shouldMerge) {
-        // 不需要合并的日志直接添加
-        merged.push(currentLog)
-        processed.add(currentLog.id)
-        continue
-      }
-      
-      // 提取当前日志的信息
-      const currentNewValues = typeof currentLog.new_values === 'object' ? currentLog.new_values : {}
-      const currentBatchNumber = (currentNewValues as any)?.batch_number
-      const currentRecordId = currentLog.record_id
-      const currentOpType = currentLog.operation_type
-      const currentTime = dayjs(currentLog.created_at)
-      
-      // 查找可以合并的日志（1分钟内）
-      const mergeGroup: SystemLog[] = [currentLog]
-      processed.add(currentLog.id)
-      
-      for (let j = i + 1; j < logs.length; j++) {
-        if (processed.has(logs[j].id)) continue
-        
-        const otherLog = logs[j]
-        const otherNewValues = typeof otherLog.new_values === 'object' ? otherLog.new_values : {}
-        const otherBatchNumber = (otherNewValues as any)?.batch_number
-        const otherRecordId = otherLog.record_id
-        const otherOpType = otherLog.operation_type
-        const otherTime = dayjs(otherLog.created_at)
-        
-        // 检查是否可以合并
-        const timeDiff = Math.abs(otherTime.diff(currentTime, 'minute'))
-        const canMerge = 
-          currentRecordId === otherRecordId &&
-          currentOpType === otherOpType &&
-          currentBatchNumber === otherBatchNumber &&
-          timeDiff <= 1 // 1分钟内
-          
-        if (canMerge) {
-          mergeGroup.push(otherLog)
-          processed.add(otherLog.id)
-        }
-      }
-      
-      // 如果只有一条，直接添加；否则合并
-      if (mergeGroup.length === 1) {
-        merged.push(currentLog)
-      } else {
-        // 合并多条日志
-        const quantities = mergeGroup.map(log => {
-          const nv = typeof log.new_values === 'object' ? log.new_values : {}
-          return (nv as any)?.quantity || 0
-        })
-        const totalQuantity = quantities.reduce((sum, qty) => sum + (Number(qty) || 0), 0)
-        
-        // 收集所有SN码
-        const allSNCodes: string[] = []
-        mergeGroup.forEach(log => {
-          const nv = typeof log.new_values === 'object' ? log.new_values : {}
-          const snCodes = (nv as any)?.sn_codes
-          if (Array.isArray(snCodes)) {
-            allSNCodes.push(...snCodes)
-          }
-        })
-        
-        // 使用第一条记录的时间作为统一时间（同一批次下的SN码使用统一时间）
-        const firstTime = dayjs(mergeGroup[0].created_at)
-        const timeRange = firstTime.format('YYYY-MM-DD HH:mm:ss')
-        
-        const mergedLog: MergedLog = {
-          ...currentLog,
-          isMerged: true,
-          mergedCount: mergeGroup.length,
-          mergedLogs: mergeGroup,
-          timeRange: timeRange,
-          totalQuantity,
-          allSNCodes: [...new Set(allSNCodes)], // 去重
-          created_at: mergeGroup[0].created_at // 使用第一条的时间（统一时间）
-        }
-        
-        merged.push(mergedLog)
-      }
-    }
-    
-    return merged
-  }, [logs])
+  // 使用公共的日志合并函数
+  const allMergedLogs = useMemo(() => mergeLogs(logs), [logs])
 
   // 前端分页：基于合并后的数据
   const mergedLogs = useMemo(() => {
@@ -332,65 +230,10 @@ const ActivityLogModal: React.FC<ActivityLogModalProps> = ({ visible, onCancel, 
     }
   }
 
-  // 操作类型映射
-  const operationTypeMap: Record<string, { text: string; color: string }> = {
-    'create_product': { text: '创建商品', color: 'blue' },
-    'update_product': { text: '更新商品', color: 'cyan' },
-    'delete_product': { text: '删除商品', color: 'red' },
-    'inbound': { text: '商品入库', color: 'green' },
-    'outbound': { text: '商品出库', color: 'orange' },
-    'inventory_check': { text: '库存盘点', color: 'purple' },
-    'inventory_adjust': { text: '库存调整', color: 'purple' },
-    'delete_serial_number': { text: '删除SN码', color: 'red' },
-    'create_purchase_order': { text: '创建采购订单', color: 'blue' },
-    'update_purchase_order_status': { text: '更新采购订单状态', color: 'cyan' },
-    'approve_purchase_order': { text: '审核采购订单', color: 'green' },
-    'reject_purchase_order': { text: '拒绝采购订单', color: 'red' },
-    'create_purchase_return': { text: '创建采购退货', color: 'orange' },
-    'approve_purchase_return': { text: '审核采购退货', color: 'green' },
-    'reject_purchase_return': { text: '拒绝采购退货', color: 'red' },
-    'create_supplier': { text: '创建供应商', color: 'blue' },
-    'delete_supplier': { text: '删除供应商', color: 'red' },
-    'create_customer': { text: '创建客户', color: 'blue' },
-    'update_customer': { text: '更新客户', color: 'cyan' },
-    'delete_customer': { text: '删除客户', color: 'red' },
-    'update_store': { text: '更新门店', color: 'cyan' },
-    'create_store': { text: '创建门店', color: 'blue' },
-    'delete_store': { text: '删除门店', color: 'red' }
-  }
-
-  // 根据 table_name 过滤操作类型
-  const getFilteredOperationTypes = () => {
-    if (!filters?.table_name) {
-      // 如果没有指定 table_name，返回所有操作类型
-      return operationTypeMap
-    }
-
-    // 根据 table_name 返回相关的操作类型
-    const tableOperationMap: Record<string, string[]> = {
-      'products': ['create_product', 'update_product', 'delete_product'],
-      'inventory': ['inbound', 'outbound', 'inventory_check', 'inventory_adjust'],
-      'sn_status': ['delete_serial_number'],
-      'purchase_orders': ['create_purchase_order', 'update_purchase_order_status', 'approve_purchase_order', 'reject_purchase_order'],
-      'purchase_returns': ['create_purchase_return', 'approve_purchase_return', 'reject_purchase_return'],
-      'suppliers': ['create_supplier', 'delete_supplier'],
-      'customers': ['create_customer', 'update_customer', 'delete_customer'],
-      'customer_stores': ['create_store', 'update_store', 'delete_store']
-    }
-
-    const allowedTypes = tableOperationMap[filters.table_name] || []
-    const filtered: Record<string, { text: string; color: string }> = {}
-    
-    allowedTypes.forEach(type => {
-      if (operationTypeMap[type]) {
-        filtered[type] = operationTypeMap[type]
-      }
-    })
-
-    return filtered
-  }
-
-  const filteredOperationTypeMap = getFilteredOperationTypes()
+  // 使用公共的操作类型映射
+  const filteredOperationTypeMap = useMemo(() => {
+    return getFilteredOperationTypes(filters?.table_name)
+  }, [filters?.table_name])
 
   // 当 filters 改变时，验证并重置 operationType
   useEffect(() => {
@@ -401,7 +244,7 @@ const ActivityLogModal: React.FC<ActivityLogModalProps> = ({ visible, onCancel, 
     }
 
     // 获取当前过滤后的操作类型列表
-    const currentFilteredTypes = getFilteredOperationTypes()
+    const currentFilteredTypes = getFilteredOperationTypes(filters?.table_name)
     
     // 如果当前选择的 operationType 不在新的过滤列表中，清除它
     if (operationType && !currentFilteredTypes[operationType]) {
@@ -458,9 +301,8 @@ const ActivityLogModal: React.FC<ActivityLogModalProps> = ({ visible, onCancel, 
       key: 'user_name',
       align: 'center' as const,
       width: 100,
-      //读取真实操作的账号名称
       render: (text: string, record: any) => {
-        return record.user?.user_name || '系统'
+        return record.user_name || '系统'
       }
     },
     {
