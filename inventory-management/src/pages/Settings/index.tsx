@@ -1247,7 +1247,7 @@ const Settings: React.FC = () => {
                   </Space>
                 </Descriptions.Item>
                 <Descriptions.Item label="开发者">
-                  杨仁义
+                  小白
                 </Descriptions.Item>
                 <Descriptions.Item label="系统描述">
                   本地化仓库管理系统，支持商品管理、库存管理、采购管理、客户管理等核心功能

@@ -141,6 +141,7 @@ export class Logger {
   private scope: string
   private stream: fs.WriteStream
   private static cleanupDone = false
+  private static instances: Logger[] = []
   
   constructor(scope: string) {
     this.scope = scope
@@ -153,6 +154,9 @@ export class Logger {
     
     const file = path.join(getLogDir(), `${new Date().toISOString().slice(0, 10)}.log`)
     this.stream = fs.createWriteStream(file, { flags: 'a', encoding: 'utf8' })
+    
+    // 记录实例用于退出时清理
+    Logger.instances.push(this)
     
     // 写入日志文件头（如果是新文件）
     try {
@@ -194,6 +198,21 @@ export class Logger {
   info(msg: string, meta?: any) { this.write('info', msg, meta) }
   warn(msg: string, meta?: any) { this.write('warn', msg, meta) }
   error(msg: string, meta?: any) { this.write('error', msg, meta) }
+  
+  // 关闭日志流
+  close() {
+    try {
+      this.stream.end()
+    } catch { }
+  }
+  
+  // 静态方法：关闭所有日志实例
+  static closeAll() {
+    for (const instance of Logger.instances) {
+      instance.close()
+    }
+    Logger.instances = []
+  }
 }
 
 export function createLogger(scope: string) { return new Logger(scope) }

@@ -6,7 +6,7 @@ import crypto from 'crypto'
 import https from 'https'
 import http from 'http'
 import bcrypt from 'bcryptjs'
-import { createLogger } from '../src/utils/logger'
+import { createLogger, Logger } from '../src/utils/logger'
 import { pathToFileURL } from 'url'
 import { fileURLToPath } from 'url'
 import * as simple from './database/simple'
@@ -671,10 +671,11 @@ const createWindow = () => {
       isVisible: mainWindow?.isVisible(),
       isFocused: mainWindow?.isFocused()
     })
-    // 在开发模式下，可以阻止关闭以便调试
-    if (process.env.NODE_ENV === 'development' && !app.isPackaged) {
-      // 允许正常关闭，但记录详细信息
-      log.info('开发模式：允许窗口关闭')
+    
+    // 清理可能阻止退出的资源
+    if (updateCheckInterval) {
+      clearInterval(updateCheckInterval)
+      updateCheckInterval = null
     }
   })
 
@@ -682,6 +683,23 @@ const createWindow = () => {
   mainWindow.on('closed', () => {
     log.warn('窗口已关闭', { timestamp: new Date().toISOString() })
     mainWindow = null
+    
+    // 在非 macOS 平台上，窗口关闭后立即退出应用
+    if (process.platform !== 'darwin') {
+      // 关闭数据库连接
+      if (sqlite && typeof sqlite.close === 'function') {
+        try {
+          sqlite.close()
+        } catch { }
+        sqlite = null
+      }
+      
+      // 关闭所有日志流
+      try { Logger.closeAll() } catch { }
+      
+      // 强制退出
+      app.exit(0)
+    }
   })
 
   // 监听窗口可见性变化
@@ -897,7 +915,7 @@ const createWindow = () => {
                 type: 'info',
                 title: '关于',
                 message: '仓库管理系统 v    ',
-                detail: '开发者杨仁义'
+                detail: '开发者小白'
               })
             }
           }
@@ -1265,27 +1283,59 @@ app.on('window-all-closed', () => {
     nodeEnv: process.env.NODE_ENV
   })
 
+  // 在非 macOS 平台上，强制退出应用
   if (process.platform !== 'darwin') {
-    // 在开发模式下，延迟退出以便查看日志
-    if (process.env.NODE_ENV === 'development' && !app.isPackaged) {
-      log.info('开发模式：延迟 3 秒后退出，以便查看日志')
-      setTimeout(() => {
-        log.info('开发模式：现在退出应用')
-        app.quit()
-      }, 3000)
-    } else {
-      app.quit()
+    // 清理更新检查定时器
+    if (updateCheckInterval) {
+      clearInterval(updateCheckInterval)
+      updateCheckInterval = null
     }
+    
+    // 关闭数据库连接
+    if (sqlite && typeof sqlite.close === 'function') {
+      try {
+        sqlite.close()
+      } catch { }
+      sqlite = null
+    }
+    
+    // 关闭所有日志流
+    try { Logger.closeAll() } catch { }
+    
+    // 强制退出应用
+    app.exit(0)
   }
 })
 
 app.on('will-quit', () => {
+  log.info('应用即将退出，清理资源...')
+  
+  // 清理所有快捷键
   globalShortcut.unregisterAll()
+  
   // 清理更新检查定时器
   if (updateCheckInterval) {
     clearInterval(updateCheckInterval)
     updateCheckInterval = null
   }
+  
+  // 关闭数据库连接
+  if (sqlite && typeof sqlite.close === 'function') {
+    try {
+      sqlite.close()
+      log.info('数据库连接已关闭')
+    } catch (err) {
+      log.error('关闭数据库连接失败:', err)
+    }
+    sqlite = null
+  }
+  
+  log.info('资源清理完成')
+  
+  // 关闭所有日志流（必须在最后）
+  try {
+    Logger.closeAll()
+  } catch { }
 })
 
 // IPC通信处理
