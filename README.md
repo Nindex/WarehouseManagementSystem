@@ -81,7 +81,7 @@
 #### 1. 克隆项目
 
 ```bash
-git clone <repository-url>
+git@github.com:Nindex/WarehouseManagementSystem.git
 cd inventory-management
 ```
 
@@ -270,7 +270,6 @@ ON inventory_transactions(product_id, type, created_at DESC);
 
 #### Q: 数据库文件在哪里？
 **A**: 
-- 开发环境: 项目根目录下的 `data/inventory.db`
 - 生产环境: `%APPDATA%/仓库管理系统/data/inventory.db`
 
 #### Q: 如何重置数据库？
