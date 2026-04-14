@@ -148,8 +148,23 @@ export function mergeLogs(logs: SystemLog[]): MergedLog[] {
       const firstTime = dayjs(mergeGroup[0].created_at)
       const timeRange = firstTime.format('YYYY-MM-DD HH:mm:ss')
       
+      // 计算合并后的库存变化：取第一条的 old_quantity 和最后一条的 new_quantity
+      const firstNewValues = typeof mergeGroup[0].new_values === 'object' ? mergeGroup[0].new_values : {}
+      const lastNewValues = typeof mergeGroup[mergeGroup.length - 1].new_values === 'object' ? mergeGroup[mergeGroup.length - 1].new_values : {}
+      const mergedOldQuantity = (firstNewValues as any)?.old_quantity ?? 0
+      const mergedNewQuantity = (lastNewValues as any)?.new_quantity ?? (mergedOldQuantity + totalQuantity)
+      
+      // 构建合并后的 new_values
+      const mergedNewValues = {
+        ...(typeof currentLog.new_values === 'object' ? currentLog.new_values : {}),
+        quantity: totalQuantity,
+        old_quantity: mergedOldQuantity,
+        new_quantity: mergedNewQuantity
+      }
+      
       const mergedLog: MergedLog = {
         ...currentLog,
+        new_values: mergedNewValues,
         isMerged: true,
         mergedCount: mergeGroup.length,
         mergedLogs: mergeGroup,
