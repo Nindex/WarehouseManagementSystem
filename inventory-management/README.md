@@ -243,27 +243,6 @@ inventory-management/
 - 开发工具自动打开
 - 详细的错误提示
 
-### 数据库迁移机制
-
-系统支持数据库结构迁移，采用 **JavaScript 函数实现**（而非纯 SQL 脚本），以兼容生产环境的旧数据库：
-
-1. **迁移实现方式**: 使用 `PRAGMA table_info` 或查询 `sqlite_master` 检查表/列是否存在
-2. **迁移执行**: 应用启动时自动检测并执行未执行的迁移
-3. **主要迁移函数**:
-   - `migrateUserNameColumn()`: 检查并添加 users 表的 name 列
-   - `migrateRepairRecordsTable()`: 检查并创建维修记录相关表
-
-示例迁移逻辑：
-```typescript
-// 检查列是否存在
-const columns = db.prepare(`PRAGMA table_info(users)`).all()
-const hasNameColumn = columns.some((col: any) => col.name === 'name')
-
-if (!hasNameColumn) {
-  db.exec(`ALTER TABLE users ADD COLUMN name TEXT`)
-}
-```
-
 ### 添加新功能
 
 1. **创建页面组件**: 在 `src/pages/` 下创建新页面
@@ -286,8 +265,6 @@ if (!hasNameColumn) {
 **A**: 
 - 开发环境: 项目根目录下的 `data/inventory.db`
 - 生产环境: `安装目录/data/inventory.db`
-
-> ⚠️ **重要**: 数据库强制存储在安装目录下，不回退到 userData。如果安装目录不可写（如 Program Files），应用会报错并提示用户更换安装位置或以管理员身份运行。
 
 #### Q: 如何重置数据库？
 **A**: 删除数据库文件后重启应用，系统会自动重新初始化。
