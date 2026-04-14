@@ -82,6 +82,7 @@ function App() {
                             <Route path="/settings" element={<Navigate to="/settings/users" replace />} />
                             <Route path="/settings/profile" element={<Settings />} />
                             <Route path="/settings/users" element={<Settings />} />
+                            <Route path="/settings/system" element={<Settings />} />
                             <Route path="/settings/backup" element={<Settings />} />
                             <Route path="/settings/about" element={<Settings />} />
                           </Routes>

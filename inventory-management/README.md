@@ -35,7 +35,9 @@
 ### ⚙️ 系统设置
 - **用户管理**: 用户账号管理
 - **数据备份恢复**: 数据库备份、数据恢复功能
-- **系统配置**: 系统参数配置
+- **系统配置**: 
+  - 系统参数配置
+  - **显示模式设置**: 支持窗口化全屏（默认）、窗口化、全屏三种模式，设置持久化到数据库
 - **个人资料**: 用户个人信息管理
 
 ## 技术栈
@@ -56,7 +58,8 @@
 - **数据库**: Better-SQLite3 (SQLite)
 - **数据库位置**: 
   - 开发环境: `data/inventory.db`
-  - 生产环境: `安装目录/data/inventory.db`
+  - 生产环境: `安装目录/data/inventory.db`（强制使用安装目录，不可写时报错退出）
+- **数据库迁移**: 使用 JavaScript 函数实现（`PRAGMA table_info` 检查列是否存在）
 
 ### 其他工具
 - **PDF 导出**: jsPDF + jspdf-autotable
@@ -205,6 +208,7 @@ inventory-management/
 | `inventory_transactions` | 库存变动记录表 |
 | `sn_code_status` | SN码状态表 |
 | `repair_records` | 维修记录表 |
+| `repair_parts` | 维修配件表 |
 | `customers` | 客户表 |
 | `customer_stores` | 客户门店表 |
 | `outbound_records` | 出库记录表 |
@@ -216,10 +220,11 @@ inventory-management/
 ### 数据库特性
 
 - **自动初始化**: 首次启动时自动创建数据库和表结构
-- **自动迁移**: 支持数据库结构迁移（通过 `migrations` 目录）
+- **自动迁移**: 支持数据库结构迁移（使用 JavaScript 函数实现，兼容旧数据库）
 - **索引优化**: 包含单列索引和组合索引，优化查询性能
 - **外键约束**: 保证数据完整性
 - **事务支持**: 关键操作使用事务保证数据一致性
+- **安装目录存储**: 数据库强制存储在安装目录下，不回退到 userData
 
 ### 备份和恢复
 
@@ -240,16 +245,23 @@ inventory-management/
 
 ### 数据库迁移机制
 
-系统支持数据库结构迁移：
+系统支持数据库结构迁移，采用 **JavaScript 函数实现**（而非纯 SQL 脚本），以兼容生产环境的旧数据库：
 
-1. **迁移文件位置**: `database/migrations/` 或 `src/database/migrations/`
+1. **迁移实现方式**: 使用 `PRAGMA table_info` 或查询 `sqlite_master` 检查表/列是否存在
 2. **迁移执行**: 应用启动时自动检测并执行未执行的迁移
+3. **主要迁移函数**:
+   - `migrateUserNameColumn()`: 检查并添加 users 表的 name 列
+   - `migrateRepairRecordsTable()`: 检查并创建维修记录相关表
 
-示例迁移文件：
-```sql
--- migrations/add_composite_indexes.sql
-CREATE INDEX IF NOT EXISTS idx_inventory_transactions_composite 
-ON inventory_transactions(product_id, type, created_at DESC);
+示例迁移逻辑：
+```typescript
+// 检查列是否存在
+const columns = db.prepare(`PRAGMA table_info(users)`).all()
+const hasNameColumn = columns.some((col: any) => col.name === 'name')
+
+if (!hasNameColumn) {
+  db.exec(`ALTER TABLE users ADD COLUMN name TEXT`)
+}
 ```
 
 ### 添加新功能
@@ -274,6 +286,8 @@ ON inventory_transactions(product_id, type, created_at DESC);
 **A**: 
 - 开发环境: 项目根目录下的 `data/inventory.db`
 - 生产环境: `安装目录/data/inventory.db`
+
+> ⚠️ **重要**: 数据库强制存储在安装目录下，不回退到 userData。如果安装目录不可写（如 Program Files），应用会报错并提示用户更换安装位置或以管理员身份运行。
 
 #### Q: 如何重置数据库？
 **A**: 删除数据库文件后重启应用，系统会自动重新初始化。
@@ -328,9 +342,14 @@ npm run rebuild:sqlite
   - 批次列表展示优化
 - 系统设置页面优化
   - Tab切换时左边菜单栏同步高亮
+  - 新增显示模式设置（窗口化全屏/窗口化/全屏）
 - 操作日志优化
   - 启用/停用商品日志显示中文「启用商品」/「停用商品」
   - 删除有库存变动记录的商品时提示信息优化
+- 数据库路径优化
+  - 强制使用安装目录存储数据库（`安装目录/data/inventory.db`）
+  - 安装目录不可写时直接报错退出，不回退到 userData
+  - 不自动迁移旧数据库，简化部署逻辑
 - 修复删除商品的外键约束错误
   - 添加库存变动记录检查（包括启用和停用商品）
   - 执行物理删除时使用 PRAGMA foreign_keys 控制外键约束

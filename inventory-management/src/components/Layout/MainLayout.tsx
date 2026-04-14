@@ -10,6 +10,7 @@ import {
   TeamOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  PoweroffOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -77,6 +78,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       label: '系统设置',
       children: [
         { key: '/settings/users', label: '用户管理' },
+        { key: '/settings/system', label: '系统配置' },
         { key: '/settings/backup', label: '数据备份' },
         { key: '/settings/profile', label: '个人资料' },
         { key: '/settings/about', label: '关于' }
@@ -98,6 +100,12 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       icon: <LogoutOutlined />,
       label: '退出登录',
     },
+    {
+      key: 'exit',
+      icon: <PoweroffOutlined />,
+      label: '退出系统',
+      danger: true,
+    },
   ]
 
   const handleUserMenuClick = ({ key }: { key: string }) => {
@@ -105,7 +113,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       navigate('/settings/profile')
     } else if (key === 'logout') {
       dispatch(logout())
-      navigate('/login')
+    } else if (key === 'exit') {
+      // @ts-ignore
+      window.electron?.electronAPI?.quitApp?.()
     }
   }
 

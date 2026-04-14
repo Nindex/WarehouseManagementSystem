@@ -67,9 +67,11 @@ export const authAPI = {
         phone: payload.phone,
       })
       return { success: true, data: user }
-    } catch (error) {
+    } catch (error: any) {
       console.error('注册失败:', error)
-      return { success: false, error: '注册失败，请重试' }
+      // 传递原始错误消息，以便前端显示更详细的错误信息（如"用户名已存在"）
+      const errorMessage = error?.message || '注册失败，请重试'
+      return { success: false, error: errorMessage }
     }
   },
 

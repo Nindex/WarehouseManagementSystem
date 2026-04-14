@@ -45,6 +45,9 @@ contextBridge.exposeInMainWorld('electron', {
         installUpdate: () => ipcRenderer.invoke('install-update'),
         testUpdateServer: (url: string) => ipcRenderer.invoke('test-update-server', url),
         getUpdateServerUrl: () => ipcRenderer.invoke('get-update-server-url'),
+        
+        // 应用控制
+        quitApp: () => ipcRenderer.invoke('quit-app'),
         setUpdateServerUrl: (url: string) => ipcRenderer.invoke('set-update-server-url', url),
     
     // electron-updater 事件监听器
@@ -113,6 +116,7 @@ declare global {
         testUpdateServer: (url: string) => Promise<{ success: boolean; error?: string }>
         getUpdateServerUrl: () => Promise<string>
         setUpdateServerUrl: (url: string) => Promise<{ success: boolean }>
+        quitApp: () => Promise<void>
 
         // electron-updater 事件
         onUpdateChecking: (callback: (event: any) => void) => void

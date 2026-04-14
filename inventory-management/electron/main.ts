@@ -306,125 +306,80 @@ function loadBetterSqlite3(): any | null {
 }
 
 function getDbPath() {
-  // 使用 Electron 的 userData 目录存储数据库，确保应用更新后数据不会丢失
-  // userData 目录是持久化的，不会因为应用更新而改变位置
+  // 数据库必须存储在安装目录下的 data 文件夹
+  // 如果安装目录不可写（如 Program Files），直接报错提示用户，不回退
   let dataDir: string
 
   try {
-    // 优先使用 app.getPath('userData')，这是 Electron 推荐的方式，用于存储用户数据
-    // userData 目录通常位于：
-    // Windows: %APPDATA%\<app name>
-    // macOS: ~/Library/Application Support/<app name>
-    // Linux: ~/.config/<app name>
-    if (app && app.isReady()) {
-      dataDir = app.getPath('userData')
-    } else {
-      // 如果 app 还未准备好，尝试使用环境变量或默认路径
-      // Windows: %APPDATA%\仓库管理系统
-      const appName = '仓库管理系统'
-      if (process.platform === 'win32') {
-        const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming')
-        dataDir = path.join(appData, appName)
-      } else if (process.platform === 'darwin') {
-        const home = process.env.HOME || ''
-        dataDir = path.join(home, 'Library', 'Application Support', appName)
-      } else {
-        const home = process.env.HOME || ''
-        dataDir = path.join(home, '.config', appName)
-      }
-    }
-  } catch (e) {
-    // 如果获取失败，使用备用方案：安装目录下的 data 目录（向后兼容）
-    log.warn('Failed to get userData path, using fallback', { error: String(e) })
+    // 获取安装目录（exe 所在目录）
     let baseDir: string
-    try {
-      if (app && app.isReady()) {
-        baseDir = path.dirname(app.getPath('exe'))
-      } else {
-        baseDir = path.dirname(process.execPath)
-      }
-    } catch {
+    if (app && app.isReady()) {
+      baseDir = path.dirname(app.getPath('exe'))
+    } else {
       baseDir = path.dirname(process.execPath)
     }
-    dataDir = path.join(path.resolve(baseDir), 'data')
+    
+    // 使用安装目录下的 data 文件夹
+    const installDataDir = path.join(path.resolve(baseDir), 'data')
+    
+    // 测试目录是否可写
+    try {
+      if (!fs.existsSync(installDataDir)) {
+        fs.mkdirSync(installDataDir, { recursive: true })
+      }
+      // 写入测试文件验证权限
+      const testFile = path.join(installDataDir, '.write-test')
+      fs.writeFileSync(testFile, 'test')
+      fs.unlinkSync(testFile)
+      
+      // 可写，使用安装目录
+      dataDir = installDataDir
+      log.info('使用安装目录存储数据库', { dataDir })
+    } catch (writeError: any) {
+      // 不可写（如 Program Files），直接报错退出
+      log.error('安装目录不可写', { installDir: installDataDir, error: String(writeError) })
+      
+      const isPermissionError = writeError.code === 'EPERM' || writeError.code === 'EACCES'
+      const errorMessage = `无法在安装目录创建数据库文件夹：${installDataDir}\n\n` +
+        `原因：${isPermissionError ? '权限不足（如安装在 Program Files 等系统目录）' : String(writeError.message || writeError)}\n\n` +
+        `解决方案：\n` +
+        `1. 将程序安装到用户有写权限的目录（如 D:\\仓库管理系统）\n` +
+        `2. 或以管理员身份运行程序`
+      
+      // 同步显示错误对话框（确保用户能看到）
+      try {
+        if (app && app.isReady()) {
+          dialog.showErrorBox('数据库初始化失败', errorMessage)
+        } else {
+          // app 未就绪时，使用控制台输出并延迟退出
+          console.error('数据库初始化失败:', errorMessage)
+        }
+      } catch (dialogError) {
+        console.error('数据库初始化失败:', errorMessage)
+      }
+      
+      // 抛出错误阻止程序继续启动
+      throw new Error(errorMessage)
+    }
+  } catch (e: any) {
+    // 如果是我们已经处理过的错误（带有解决方案的），直接抛出
+    if (e.message && e.message.includes('解决方案')) {
+      throw e
+    }
+    
+    // 其他错误（如获取安装目录失败）
+    log.error('获取安装目录失败', { error: String(e) })
+    throw new Error(`无法确定安装目录：${String(e.message || e)}`)
   }
 
   // 确保 dataDir 是绝对路径且规范化
   dataDir = path.resolve(dataDir)
 
-  // 迁移逻辑：如果新位置没有数据库，但旧位置（安装目录）有数据库，则迁移
-  const newDbPath = path.join(dataDir, 'inventory.db')
-  if (!fs.existsSync(newDbPath)) {
-    // 检查旧位置是否有数据库
-    let oldDataDir: string
-    try {
-      let baseDir: string
-      if (app && app.isReady()) {
-        baseDir = path.dirname(app.getPath('exe'))
-      } else {
-        baseDir = path.dirname(process.execPath)
-      }
-      oldDataDir = path.join(path.resolve(baseDir), 'data')
-      const oldDbPath = path.join(oldDataDir, 'inventory.db')
-
-      if (fs.existsSync(oldDbPath)) {
-        log.info('发现旧位置的数据库，开始迁移到新位置', {
-          oldPath: oldDbPath,
-          newPath: newDbPath
-        })
-
-        // 确保新目录存在
-        if (!fs.existsSync(dataDir)) {
-          fs.mkdirSync(dataDir, { recursive: true })
-        }
-
-        // 复制数据库文件
-        fs.copyFileSync(oldDbPath, newDbPath)
-        log.info('数据库迁移成功', { from: oldDbPath, to: newDbPath })
-
-        // 可选：备份旧数据库（保留一段时间以便回滚）
-        const backupPath = oldDbPath + '.migrated.' + Date.now()
-        try {
-          fs.copyFileSync(oldDbPath, backupPath)
-          log.info('已备份旧数据库', { backupPath })
-        } catch (backupError) {
-          log.warn('备份旧数据库失败，但迁移已完成', { error: String(backupError) })
-        }
-      }
-    } catch (migrationError) {
-      log.warn('数据库迁移检查失败，继续使用新位置', { error: String(migrationError) })
-    }
-  }
-
-  // 确定数据库路径（静默）
-
-  try {
-    // 创建目录（如果不存在）
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true })
-      // 数据目录已创建（静默）
-    }
-
-    // 验证目录可写
-    const testFile = path.join(dataDir, '.write-test')
-    try {
-      fs.writeFileSync(testFile, 'test')
-      fs.unlinkSync(testFile)
-      // 数据目录可写（静默）
-    } catch (writeError) {
-      log.error('Data directory is not writable', { dataDir, error: String(writeError) })
-      throw new Error(`数据目录不可写: ${dataDir}\n请确保程序安装在具有写权限的目录，或以管理员权限运行。`)
-    }
-  } catch (e: any) {
-    log.error('Failed to create or verify data directory', { dataDir, error: String(e) })
-    if (e.message && e.message.includes('不可写')) {
-      throw e
-    }
-    throw new Error(`无法创建数据目录: ${dataDir}\n错误: ${String(e)}`)
-  }
+  // 不再迁移旧数据库 - 如果安装目录没有数据库，就创建新的
+  // 旧数据库保留在 userData 目录，用户可手动迁移
 
   const dbPath = path.join(dataDir, 'inventory.db')
-  // 数据库路径已确定（静默）
+  log.info('数据库路径已确定', { dbPath })
   return dbPath
 }
 
@@ -592,9 +547,36 @@ function applySqlFile(db: any, candidates: string[]) {
 
 const createWindow = () => {
   // Create the browser window.
+  // 从数据库读取显示模式设置
+  // displayMode: 'windowed' | 'fullscreen' | 'windowed-fullscreen'
+  // 默认使用窗口化全屏
+  let displayMode: 'windowed' | 'fullscreen' | 'windowed-fullscreen' = 'windowed-fullscreen'
+  try {
+    const db = ensureDatabase()
+    if (db) {
+      const result = db.prepare('SELECT value FROM system_settings WHERE key = ?').get('displayMode') as { value: string } | undefined
+      if (result?.value) {
+        displayMode = result.value as 'windowed' | 'fullscreen' | 'windowed-fullscreen'
+      }
+      log.info('读取显示模式设置:', { displayMode })
+    }
+  } catch (error) {
+    log.warn('读取显示模式设置失败，使用默认值(窗口化全屏):', error)
+  }
+
+  // 根据显示模式设置窗口参数
+  const isFullscreen = displayMode === 'fullscreen'
+  const isWindowedFullscreen = displayMode === 'windowed-fullscreen'
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 1000,
+    fullscreen: isFullscreen,
+    // 窗口化全屏：最大化窗口但不进入全屏模式
+    ...(isWindowedFullscreen && {
+      width: 1920,
+      height: 1080,
+    }),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -651,11 +633,18 @@ const createWindow = () => {
   // 窗口准备好后显示
   mainWindow.once('ready-to-show', () => {
     if (mainWindow) {
+      // 如果是窗口化全屏模式，最大化窗口
+      if (displayMode === 'windowed-fullscreen') {
+        mainWindow.maximize()
+        log.info('窗口化全屏模式：最大化窗口')
+      }
+      
       mainWindow.show()
       log.info('主窗口已显示', {
         isVisible: mainWindow.isVisible(),
         isFocused: mainWindow.isFocused(),
-        isDestroyed: mainWindow.isDestroyed()
+        isDestroyed: mainWindow.isDestroyed(),
+        displayMode
       })
       // 开发模式下自动打开开发者工具，方便调试页面问题
       if (process.env.NODE_ENV === 'development' && !app.isPackaged) {
@@ -941,6 +930,26 @@ if (process.env.NODE_ENV === 'development' && !app.isPackaged) {
 }
 // 禁用硬件加速可能导致的无响应问题（可选，如果遇到问题可以取消注释）
 // app.disableHardwareAcceleration()
+
+// 单实例锁：确保程序只能同时运行一个实例
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  // 如果无法获取锁，说明已有实例在运行，直接退出
+  console.log('程序已在运行，禁止打开多个实例')
+  app.quit()
+} else {
+  // 获取到锁，监听第二个实例的启动请求
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // 当运行第二个实例时，聚焦到第一个实例的窗口
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore()
+      }
+      mainWindow.focus()
+    }
+  })
+}
 
 // 在应用启动前设置错误处理
 app.on('ready', () => {
@@ -1395,6 +1404,12 @@ ipcMain.handle('show-backup-file-dialog', async () => {
 
 ipcMain.handle('get-app-version', () => {
   return app.getVersion()
+})
+
+// 退出应用
+ipcMain.handle('quit-app', () => {
+  log.info('用户通过菜单退出应用')
+  app.quit()
 })
 
 // ==================== electron-updater IPC 处理器 ====================
