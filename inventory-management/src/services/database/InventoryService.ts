@@ -1524,21 +1524,7 @@ class InventoryService {
             if (!sn || !sn.trim()) continue
             const trimmedSn = sn.trim()
             
-            // 检查该SN码是否已经出库（避免重复插入）
-            const existingOutbound = await databaseService.queryOne<{ id: number }>(
-              `SELECT id FROM outbound_sn_items 
-               WHERE product_id = ? AND serial_number = ?`,
-              [productId, trimmedSn]
-            )
-            
-            if (existingOutbound) {
-              // 收集已出库的SN码
-              alreadyOutboundSNs.push(trimmedSn)
-              console.warn(`SN码 ${trimmedSn} 已经出库，跳过插入 outbound_sn_items`)
-              continue
-            }
-            
-            // 写入出库SN明细表
+            // 写入出库SN明细表（依赖数据库唯一约束防止重复，避免竞态条件）
             try {
               await databaseService.insert(
                 `INSERT INTO outbound_sn_items 
@@ -1557,9 +1543,8 @@ class InventoryService {
                 ]
               )
             } catch (insertErr: any) {
-              // 如果插入失败是因为唯一约束，记录警告并继续
+              // 如果插入失败是因为唯一约束，说明SN码已出库，记录警告并继续
               if (insertErr?.message?.includes('UNIQUE constraint')) {
-                // 收集已出库的SN码
                 alreadyOutboundSNs.push(trimmedSn)
                 console.warn(`SN码 ${trimmedSn} 已存在出库记录，跳过插入`)
                 continue
