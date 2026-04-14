@@ -221,9 +221,36 @@ export const productAPI = {
     try {
       await ProductService.deleteProduct(id, userId)
       return { success: true, message: '产品删除成功' }
+    } catch (error: any) {
+      return { success: false, error: error?.message || '删除产品失败' }
+    }
+  },
+
+  // 获取所有商品（包括停用的）
+  getProductsIncludeDisabled: async (page = 1, pageSize = 20, search = '', categoryId?: number) => {
+    try {
+      const result = await ProductService.getAllProductsIncludeDisabled(page, pageSize, search, categoryId)
+      return {
+        success: true,
+        data: {
+          ...result,
+          totalPages: Math.ceil(result.total / pageSize)
+        }
+      }
     } catch (error) {
-      console.error('删除产品失败:', error)
-      return { success: false, error: '删除产品失败' }
+      console.error('获取产品列表失败:', error)
+      return { success: false, error: '获取产品列表失败' }
+    }
+  },
+
+  // 切换商品启用/停用状态
+  toggleProductStatus: async (id: number, userId?: number) => {
+    try {
+      const product = await ProductService.toggleProductStatus(id, userId)
+      return { success: true, data: product }
+    } catch (error: any) {
+      console.error('切换商品状态失败:', error)
+      return { success: false, error: error?.message || '切换商品状态失败' }
     }
   },
 
@@ -481,6 +508,15 @@ export const inventoryAPI = {
     } catch (error) {
       console.error('获取批次信息失败:', error)
       return { success: false, error: '获取批次信息失败' }
+    }
+  },
+
+  updateBatchLocation: async (productId: number, batchNumber: string, location: string) => {
+    try {
+      await InventoryService.updateBatchLocation(productId, batchNumber, location)
+      return { success: true, message: '存放位置更新成功' }
+    } catch (error: any) {
+      return { success: false, error: error?.message || '更新存放位置失败' }
     }
   },
 
@@ -1098,6 +1134,42 @@ export const databaseAPI = {
     } catch (error: any) {
       console.error('备份清理失败:', error)
       return { success: false, error: error?.message || '备份清理失败' }
+    }
+  }
+}
+
+// 维修记录相关API
+import RepairService from './database/RepairService'
+import type { RepairRecord } from './database/RepairService'
+
+export const repairAPI = {
+  getRepairsBySN: async (serialNumber: string) => {
+    try {
+      const data = await RepairService.getRepairsBySN(serialNumber)
+      return { success: true, data }
+    } catch (error: any) {
+      console.error('获取维修记录失败:', error)
+      return { success: false, error: error?.message || '获取维修记录失败' }
+    }
+  },
+
+  createRepair: async (data: RepairRecord) => {
+    try {
+      const result = await RepairService.createRepair(data)
+      return { success: true, data: result }
+    } catch (error: any) {
+      console.error('创建维修记录失败:', error)
+      return { success: false, error: error?.message || '创建维修记录失败' }
+    }
+  },
+
+  deleteRepair: async (id: number) => {
+    try {
+      await RepairService.deleteRepair(id)
+      return { success: true }
+    } catch (error: any) {
+      console.error('删除维修记录失败:', error)
+      return { success: false, error: error?.message || '删除维修记录失败' }
     }
   }
 }

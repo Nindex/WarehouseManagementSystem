@@ -479,59 +479,144 @@ class ProductService {
   }
 
   /**
-   * 删除产品（软删除）
+   * 检查商品是否有库存变动记录
+   */
+  async hasInventoryTransactions(productId: number): Promise<boolean> {
+    // 检查库存变动记录（出入库记录）
+    const transactions = await databaseService.queryOne<{ count: number }>(
+      'SELECT COUNT(*) as count FROM inventory_transactions WHERE product_id = ?',
+      [productId]
+    )
+    if (transactions && transactions.count > 0) {
+      return true
+    }
+
+    // 检查盘点记录
+    const checkRecords = await databaseService.queryOne<{ count: number }>(
+      'SELECT COUNT(*) as count FROM inventory_check_records WHERE product_id = ?',
+      [productId]
+    )
+    if (checkRecords && checkRecords.count > 0) {
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * 删除产品（物理删除）
+   * - 如果有库存变动记录，不允许删除
+   * - 如果没有记录，执行完全物理删除
    */
   async deleteProduct(id: number, userId?: number): Promise<void> {
     try {
       // 先获取产品信息用于日志
       const product = await this.getProductById(id)
-      
-      const affectedRows = await databaseService.update(
-        'UPDATE products SET status = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [id]
-      )
-      
-      if (affectedRows === 0) {
+      if (!product) {
         throw new Error('产品不存在')
       }
-      
-      // 删除该商品相关的库存流水记录
+
+      // 检查是否有库存变动记录（包括启用和停用的商品）
+      const hasTransactions = await this.hasInventoryTransactions(id)
+      if (hasTransactions) {
+        throw new Error('该商品有库存变动记录，不允许删除。')
+      }
+
+      // 获取商品SKU用于后续删除
+      const sku = product.sku
+
+      // 关闭外键约束，按顺序删除关联数据
+      await databaseService.update('PRAGMA foreign_keys = OFF', [])
+
       try {
+        // 1. 删除出库记录明细（关联到该商品的批次）
         await databaseService.update(
-          'DELETE FROM inventory_transactions WHERE product_id = ?',
+          `DELETE FROM outbound_record_items 
+           WHERE batch_id IN (SELECT id FROM outbound_records WHERE product_id = ?)`,
           [id]
         )
-        console.log(`已删除商品 ${id} 的库存流水记录`)
-      } catch (transactionError) {
-        // 如果删除流水记录失败，记录错误但不影响主流程
-        console.error('删除库存流水记录失败:', transactionError)
-      }
-      
-      // 删除该商品的库存记录
-      try {
+        console.log(`已删除商品 ${id} 的出库记录明细`)
+
+        // 2. 删除出库记录
+        await databaseService.update(
+          'DELETE FROM outbound_records WHERE product_id = ?',
+          [id]
+        )
+        console.log(`已删除商品 ${id} 的出库记录`)
+
+        // 3. 删除入库记录明细（关联到该商品的批次）
+        await databaseService.update(
+          `DELETE FROM inbound_record_items 
+           WHERE batch_id IN (SELECT id FROM inbound_records WHERE product_id = ?)`,
+          [id]
+        )
+        console.log(`已删除商品 ${id} 的入库记录明细`)
+
+        // 4. 删除入库记录
+        await databaseService.update(
+          'DELETE FROM inbound_records WHERE product_id = ?',
+          [id]
+        )
+        console.log(`已删除商品 ${id} 的入库记录`)
+
+        // 5. 删除批次库存记录（SN码）
+        await databaseService.update(
+          'DELETE FROM batch_inventory WHERE product_id = ?',
+          [id]
+        )
+        console.log(`已删除商品 ${id} 的批次库存记录`)
+
+        // 6. 删除SN码状态记录
+        await databaseService.update(
+          'DELETE FROM sn_code_status WHERE product_id = ?',
+          [id]
+        )
+        console.log(`已删除商品 ${id} 的SN码状态记录`)
+
+        // 7. 删除维修记录
+        await databaseService.update(
+          'DELETE FROM repair_records WHERE product_id = ?',
+          [id]
+        )
+        console.log(`已删除商品 ${id} 的维修记录`)
+
+        // 8. 删除库存记录
         await databaseService.update(
           'DELETE FROM inventory WHERE product_id = ?',
           [id]
         )
         console.log(`已删除商品 ${id} 的库存记录`)
-      } catch (inventoryError) {
-        // 如果删除库存记录失败，记录错误但不影响主流程
-        console.error('删除库存记录失败:', inventoryError)
+
+        // 9. 删除商品SKU记录
+        await databaseService.update(
+          'DELETE FROM product_skus WHERE product_id = ?',
+          [id]
+        )
+        console.log(`已删除商品 ${id} 的SKU记录`)
+
+        // 10. 删除商品本身
+        await databaseService.update(
+          'DELETE FROM products WHERE id = ?',
+          [id]
+        )
+        console.log(`已删除商品 ${id}`)
+
+      } finally {
+        // 重新开启外键约束
+        await databaseService.update('PRAGMA foreign_keys = ON', [])
       }
-      
+
       // 记录操作日志（异步，不阻塞主流程）
-      if (product) {
-        SystemLogService.createLog({
-          user_id: userId || null,
-          operation_type: 'delete_product',
-          table_name: 'products',
-          record_id: id,
-          old_values: { sku: product.sku, name: product.name },
-          description: `删除商品: ${product.name} (SKU: ${product.sku})`
-        }).catch(err => console.error('记录操作日志失败:', err))
-      }
+      SystemLogService.createLog({
+        user_id: userId || null,
+        operation_type: 'delete_product',
+        table_name: 'products',
+        record_id: id,
+        old_values: { sku: sku, name: product.name },
+        description: `删除商品: ${product.name} (SKU: ${sku})`
+      }).catch(err => console.error('记录操作日志失败:', err))
+
     } catch (error) {
-      console.error('删除产品失败:', error)
       throw error
     }
   }
@@ -714,6 +799,130 @@ class ProductService {
       }
     } catch (error) {
       console.error('删除分类失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 获取所有商品（包括停用的）
+   */
+  async getAllProductsIncludeDisabled(page = 1, pageSize = 20, search = '', categoryId?: number): Promise<{
+    data: Product[]
+    total: number
+    page: number
+    pageSize: number
+  }> {
+    try {
+      const offset = (page - 1) * pageSize
+      const conditions: string[] = ['p.status = 1 OR p.status = 0'] // 获取所有状态
+      const params: any[] = []
+
+      if (search) {
+        conditions.push('(p.name LIKE ? OR p.sku LIKE ?)')
+        params.push(`%${search}%`, `%${search}%`)
+      }
+
+      if (categoryId !== undefined) {
+        if (categoryId === -1) {
+          conditions.push('p.category_id IS NULL')
+        } else {
+          conditions.push('p.category_id = ?')
+          params.push(categoryId)
+        }
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+      const countResult = await databaseService.queryOne<{ total: number }>(
+        `SELECT COUNT(*) as total FROM products p ${whereClause}`,
+        params
+      )
+      const total = countResult?.total || 0
+
+      params.push(pageSize, offset)
+      const products = await databaseService.query<Product>(
+        `SELECT 
+           p.id, p.sku, p.name, p.category_id, c.name as category_name, 
+           p.description, p.unit, p.cost_price, p.selling_price, 
+           p.min_stock, p.max_stock, p.status, p.created_at, p.updated_at,
+           COALESCE(i.quantity, 0) as current_stock
+         FROM products p 
+         LEFT JOIN categories c ON p.category_id = c.id AND c.status = 1
+         LEFT JOIN inventory i ON p.id = i.product_id
+         ${whereClause}
+         ORDER BY p.updated_at DESC
+         LIMIT ? OFFSET ?`,
+        params
+      )
+
+      return { data: products, total, page, pageSize }
+    } catch (error) {
+      console.error('获取产品列表失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 切换商品启用/停用状态
+   */
+  async toggleProductStatus(id: number, userId?: number): Promise<Product> {
+    try {
+      const product = await this.getProductByIdIncludeDeleted(id)
+      if (!product) {
+        throw new Error('商品不存在')
+      }
+
+      // 切换状态：1 -> 0（停用），0 -> 1（启用）
+      const newStatus = product.status === 1 ? 0 : 1
+      const actionText = newStatus === 1 ? '启用' : '停用'
+
+      const affectedRows = await databaseService.update(
+        'UPDATE products SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [newStatus, id]
+      )
+
+      if (affectedRows === 0) {
+        throw new Error('商品不存在')
+      }
+
+      // 记录操作日志
+      SystemLogService.createLog({
+        user_id: userId || null,
+        operation_type: newStatus === 1 ? 'enable_product' : 'disable_product',
+        table_name: 'products',
+        record_id: id,
+        old_values: { status: product.status },
+        new_values: { status: newStatus },
+        description: `${actionText}商品: ${product.name} (SKU: ${product.sku})`
+      }).catch(err => console.error('记录操作日志失败:', err))
+
+      return { ...product, status: newStatus }
+    } catch (error) {
+      console.error('切换商品状态失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 获取商品信息（包括停用的）
+   */
+  async getProductByIdIncludeDeleted(id: number): Promise<Product | null> {
+    try {
+      const product = await databaseService.queryOne<Product>(
+        `SELECT 
+           p.id, p.sku, p.name, p.category_id, c.name as category_name, 
+           p.description, p.unit, p.cost_price, p.selling_price, 
+           p.min_stock, p.max_stock, p.status, p.created_at, p.updated_at,
+           COALESCE(i.quantity, 0) as current_stock
+         FROM products p 
+         LEFT JOIN categories c ON p.category_id = c.id AND c.status = 1
+         LEFT JOIN inventory i ON p.id = i.product_id
+         WHERE p.id = ?`,
+        [id]
+      )
+      return product
+    } catch (error) {
+      console.error('获取商品信息失败:', error)
       throw error
     }
   }

@@ -21,6 +21,8 @@ export const operationTypeMap: Record<string, { text: string; color: string }> =
   'create_product': { text: '创建商品', color: 'blue' },
   'update_product': { text: '更新商品', color: 'cyan' },
   'delete_product': { text: '删除商品', color: 'red' },
+  'enable_product': { text: '启用商品', color: 'green' },
+  'disable_product': { text: '停用商品', color: 'orange' },
   
   // 库存操作
   'inbound': { text: '商品入库', color: 'green' },

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, globalShortcut, dialog } from 'electron'
+﻿import { app, BrowserWindow, ipcMain, Menu, globalShortcut, dialog } from 'electron'
 import Module from 'module'
 import path from 'path'
 import fs from 'fs'

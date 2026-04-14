@@ -1305,6 +1305,29 @@ class InventoryService {
   }
 
   /**
+   * 更新批次存放位置
+   */
+  async updateBatchLocation(productId: number, batchNumber: string, location: string): Promise<void> {
+    try {
+      await this.ensureBatchTables()
+      
+      const affectedRows = await databaseService.update(
+        `UPDATE inventory_batches 
+         SET location = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE product_id = ? AND batch_number = ?`,
+        [location, productId, batchNumber]
+      )
+      
+      if (affectedRows === 0) {
+        throw new Error('批次记录不存在')
+      }
+    } catch (error) {
+      console.error('更新批次位置失败:', error)
+      throw error
+    }
+  }
+
+  /**
    * 获取库存总值
    * 优先使用成本价，如果成本价为0或NULL，则使用售价
    * 确保正确处理NULL值

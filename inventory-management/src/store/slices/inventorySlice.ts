@@ -56,15 +56,38 @@ const initialState: InventoryState = {
 // 获取产品列表
 export const fetchProducts = createAsyncThunk<
   { data: Product[]; total: number; page: number; pageSize: number; totalPages: number },
-  { page?: number; pageSize?: number; search?: string; categoryId?: number }
+  { page?: number; pageSize?: number; search?: string; categoryId?: number; includeDisabled?: boolean }
 >(
   'inventory/fetchProducts',
-  async ({ page = 1, pageSize = 20, search = '', categoryId }: { page?: number; pageSize?: number; search?: string; categoryId?: number } = {}) => {
-    const res = await productAPI.getProducts(page, pageSize, search, categoryId)
+  async ({ page = 1, pageSize = 20, search = '', categoryId, includeDisabled }: { page?: number; pageSize?: number; search?: string; categoryId?: number; includeDisabled?: boolean } = {}) => {
+    let res
+    if (includeDisabled) {
+      res = await productAPI.getProductsIncludeDisabled(page, pageSize, search, categoryId)
+    } else {
+      res = await productAPI.getProducts(page, pageSize, search, categoryId)
+    }
     if (!res.success || !res.data) {
       throw new Error(res.error || '获取产品列表失败')
     }
     return res.data
+  }
+)
+
+// 切换商品启用/停用状态
+export const toggleProductStatus = createAsyncThunk(
+  'inventory/toggleProductStatus',
+  async (id: number, { getState, rejectWithValue }) => {
+    try {
+      const state = getState() as any
+      const userId = state.auth?.user?.id
+      const response = await productAPI.toggleProductStatus(id, userId)
+      if (!response.success) {
+        return rejectWithValue(response.error || '切换状态失败')
+      }
+      return { id, status: response.data?.status }
+    } catch (error: any) {
+      return rejectWithValue(error?.message || '切换状态失败')
+    }
   }
 )
 
@@ -252,6 +275,24 @@ const inventorySlice = createSlice({
       .addCase(deleteProduct.rejected, (state, action) => {
         state.loading = false
         state.error = action.error.message || '删除产品失败'
+      })
+      // 切换商品状态
+      .addCase(toggleProductStatus.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(toggleProductStatus.fulfilled, (state, action) => {
+        state.loading = false
+        if (action.payload) {
+          const index = state.products.findIndex(p => p.id === action.payload.id)
+          if (index !== -1) {
+            state.products[index].status = action.payload.status
+          }
+        }
+      })
+      .addCase(toggleProductStatus.rejected, (state, action) => {
+        state.loading = false
+        state.error = action.error.message || action.payload as string || '切换状态失败'
       })
       // 调整库存
       .addCase(adjustStock.pending, (state) => {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Form, Input, Button, Row, Col, Switch, Select, App, Tabs, Table, Space, Modal, Tag, Checkbox, Descriptions, Typography, Divider, Alert, Progress } from 'antd'
 import { SaveOutlined, LockOutlined, UserOutlined, SettingOutlined, DeleteOutlined, PlusOutlined, DatabaseOutlined, ExclamationCircleOutlined, FolderOpenOutlined, InfoCircleOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { setUser } from '@/store/slices/authSlice'
 import { databaseAPI, userAPI, systemSettingAPI } from '@/services/api'
@@ -11,6 +11,7 @@ const { Option } = Select
 
 const Settings: React.FC = () => {
   const location = useLocation()
+  const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const { user } = useAppSelector((state) => state.auth)
   const [loading, setLoading] = useState(false)
@@ -673,7 +674,11 @@ const Settings: React.FC = () => {
           <SettingOutlined /> 系统设置
         </h2>
         
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
+        <Tabs activeKey={activeTab} onChange={(key) => {
+          setActiveTab(key)
+          // 同步更新 URL，让左边菜单栏跟随选中状态
+          navigate(`/settings/${key}`)
+        }}>
           <TabPane tab={<span><UserOutlined />用户管理</span>} key="users">
             <div>
               <div style={{ marginBottom: 16 }}>

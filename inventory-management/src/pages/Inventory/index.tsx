@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Space, Input, Select, Tag, Badge, Modal, Form, InputNumber, App, Row, Col, Tabs, Descriptions, Spin, message, Divider, Empty, DatePicker } from 'antd'
+import { Card, Table, Button, Space, Input, Select, Tag, Badge, Modal, Form, InputNumber, App, Row, Col, Tabs, Descriptions, Spin, message, Divider, Empty, DatePicker, Switch } from 'antd'
 
 const { TextArea } = Input
-import { PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, HistoryOutlined, AppstoreAddOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, HistoryOutlined, AppstoreAddOutlined, ToolOutlined } from '@ant-design/icons'
 import ActivityLogModal from '@/components/ActivityLogModal'
 import StockTransactionModal from '@/components/StockTransactionModal'
 import BatchInventoryModal from '@/components/BatchInventoryModal'
+import RepairRecordModal from './RepairRecordModal'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchProducts, createProduct, updateProduct, deleteProduct, adjustStock, setPageSize } from '@/store/slices/inventorySlice'
+import { fetchProducts, createProduct, updateProduct, deleteProduct, adjustStock, setPageSize, toggleProductStatus } from '@/store/slices/inventorySlice'
 import { ArrowUpOutlined, ArrowDownOutlined, EditOutlined as AdjustOutlined, AppstoreOutlined as BatchOutlined } from '@ant-design/icons'
-import { productAPI, inventoryAPI, customerAPI } from '@/services/api'
+import { productAPI, inventoryAPI, customerAPI, repairAPI } from '@/services/api'
 import type { Product, Category } from '@/types'
 import { formatCurrency } from '@/utils/format'
 import dayjs from 'dayjs'
@@ -50,6 +51,14 @@ const Inventory: React.FC = () => {
   const [customers, setCustomers] = useState<any[]>([])
   const { message } = App.useApp()
 
+  // 维修记录弹窗状态
+  const [repairModalVisible, setRepairModalVisible] = useState(false)
+  const [repairSN, setRepairSN] = useState<string>('')
+  const [repairProductId, setRepairProductId] = useState<number>(0)
+
+  // 停用/启用功能状态
+  const [showDisabledProducts, setShowDisabledProducts] = useState(false)
+
   // 批次管理相关状态
   const [activeTab, setActiveTab] = useState<string>('products')
   const [batches, setBatches] = useState<any[]>([])
@@ -66,6 +75,12 @@ const Inventory: React.FC = () => {
   const [snTraceData, setSNTraceData] = useState<any>(null)
   const [snTraceLoading, setSNTraceLoading] = useState(false)
 
+  // 入库/出库/盘点视图筛选状态（共用）
+  const [ioFilterKeyword, setIoFilterKeyword] = useState('')
+  const [ioFilterCategory, setIoFilterCategory] = useState<number | undefined>(undefined)
+  const [ioFilterStockStatus, setIoFilterStockStatus] = useState<'normal' | 'low' | 'out' | 'overfull' | undefined>(undefined)
+  const [ioFilterProductStatus, setIoFilterProductStatus] = useState<'active' | 'inactive' | undefined>(undefined)
+
   // 类别管理功能状态
   const [categoryListModalVisible, setCategoryListModalVisible] = useState(false)
   const [categoryEditModalVisible, setCategoryEditModalVisible] = useState(false)
@@ -81,12 +96,12 @@ const Inventory: React.FC = () => {
 
   useEffect(() => {
     const actualPageSize = pageSize === 1 ? 20 : pageSize
-    dispatch(fetchProducts({ page: currentPage, pageSize: actualPageSize }))
+    dispatch(fetchProducts({ page: currentPage, pageSize: actualPageSize, includeDisabled: showDisabledProducts }))
     // 加载分类列表
     loadCategories()
     // 加载客户列表
     loadCustomers()
-  }, [dispatch, currentPage, pageSize])
+  }, [dispatch, currentPage, pageSize, showDisabledProducts])
 
   // 加载批次数据
   useEffect(() => {
@@ -156,6 +171,104 @@ const Inventory: React.FC = () => {
       setCustomers([])
     }
   }
+
+  // 入库/出库/盘点视图的筛选逻辑
+  const getFilteredIOProducts = () => {
+    return products.filter(product => {
+      // 商品名称/SKU筛选
+      if (ioFilterKeyword) {
+        const keyword = ioFilterKeyword.toLowerCase()
+        const matchName = product.name?.toLowerCase().includes(keyword)
+        const matchSku = product.sku?.toLowerCase().includes(keyword)
+        if (!matchName && !matchSku) return false
+      }
+
+      // 分类筛选
+      if (ioFilterCategory !== undefined) {
+        if (product.category_id !== ioFilterCategory) return false
+      }
+
+      // 库存状态筛选
+      if (ioFilterStockStatus) {
+        const stockStatus = getStockStatus(product)
+        if (stockStatus.stockStatusType !== ioFilterStockStatus) return false
+      }
+
+      // 商品状态筛选
+      if (ioFilterProductStatus) {
+        const isActive = product.status === 1
+        if ((ioFilterProductStatus === 'active' && !isActive) || (ioFilterProductStatus === 'inactive' && isActive)) {
+          return false
+        }
+      }
+
+      return true
+    })
+  }
+
+  // 筛选区域组件（入库/出库/盘点共用）
+  const renderIOFilterBar = () => (
+    <div style={{ marginBottom: 16, padding: '12px 16px', background: '#f5f5f5', borderRadius: 8 }}>
+      <Space wrap size="middle">
+        <Input
+          placeholder="商品名称/SKU"
+          value={ioFilterKeyword}
+          onChange={e => setIoFilterKeyword(e.target.value)}
+          style={{ width: 160 }}
+          allowClear
+        />
+        <Select
+          placeholder="分类"
+          value={ioFilterCategory}
+          onChange={setIoFilterCategory}
+          style={{ width: 130 }}
+          allowClear
+        >
+          {categories.map(cat => (
+            <Select.Option key={cat.id} value={cat.id}>{cat.name}</Select.Option>
+          ))}
+        </Select>
+        <Select
+          placeholder="库存状态"
+          value={ioFilterStockStatus}
+          onChange={setIoFilterStockStatus}
+          style={{ width: 140 }}
+          allowClear
+        >
+          <Select.Option value="normal">正常</Select.Option>
+          <Select.Option value="low">库存不足</Select.Option>
+          <Select.Option value="out">无库存</Select.Option>
+          <Select.Option value="overfull">库存过多</Select.Option>
+        </Select>
+        <Select
+          placeholder="商品状态"
+          value={ioFilterProductStatus}
+          onChange={setIoFilterProductStatus}
+          style={{ width: 140 }}
+          allowClear
+        >
+          <Select.Option value="active">启用</Select.Option>
+          <Select.Option value="inactive">停用</Select.Option>
+        </Select>
+        <Button
+          icon={<SearchOutlined />}
+          onClick={() => {}}
+        >
+          筛选
+        </Button>
+        <Button
+          onClick={() => {
+            setIoFilterKeyword('')
+            setIoFilterCategory(undefined)
+            setIoFilterStockStatus(undefined)
+            setIoFilterProductStatus(undefined)
+          }}
+        >
+          重置
+        </Button>
+      </Space>
+    </div>
+  )
 
   // 表格列定义
   const columns = [
@@ -252,23 +365,21 @@ const Inventory: React.FC = () => {
     {
       title: '状态',
       align: 'center' as const,
-      key: 'status',
-      width: '10px',
+      key: 'productStatus',
+      width: '8px',
       render: (_: any, record: Product) => {
-        const stockStatus = getStockStatus(record)
         return (
-          <Tag
-            color={stockStatus.tagColor}
+          <a
+            onClick={() => handleToggleStatus(record)}
             style={{
+              color: record.status === 1 ? '#52c41a' : '#999',
+              cursor: 'pointer',
               fontWeight: 600,
-              fontSize: '13px',
-              padding: '4px 12px',
-              lineHeight: '1.5',
-              fontFamily: 'Arial, sans-serif'
+              fontSize: '13px'
             }}
           >
-            {stockStatus.text}
-          </Tag>
+            {record.status === 1 ? '● 启用' : '○ 停用'}
+          </a>
         )
       }
     },
@@ -276,7 +387,7 @@ const Inventory: React.FC = () => {
       title: '操作',
       align: 'center' as const,
       key: 'action',
-      width: '10px',
+      width: '12px',
       fixed: 'right' as const,
       render: (_: any, record: Product) => (
         <Space size="small" style={{ justifyContent: 'center' }}>
@@ -314,7 +425,7 @@ const Inventory: React.FC = () => {
   ]
 
   // 获取库存状态
-  const getStockStatus = (product: Product) => {
+  const getStockStatus = (product: any) => {
     // 从产品数据中获取实际库存
     let currentStock: number
 
@@ -322,22 +433,30 @@ const Inventory: React.FC = () => {
     if (product.stock_quantity !== undefined && product.stock_quantity !== null) {
       currentStock = product.stock_quantity
     } else if ((product as any).current_stock !== undefined && (product as any).current_stock !== null) {
-      // 使用 current_stock（API返回的字段）
       currentStock = (product as any).current_stock
     } else if ((product as any).stock !== undefined && (product as any).stock !== null) {
-      // 兼容 stock 字段
       currentStock = (product as any).stock
     } else {
-      // 如果没有库存数据，默认返回0
       currentStock = 0
     }
 
-    if (currentStock <= product.min_stock) {
-      return { color: '#dc3545', tagColor: 'error', text: '低库存', stock: currentStock }
-    } else if (currentStock >= product.max_stock) {
-      return { color: '#ffc107', tagColor: 'warning', text: '高库存', stock: currentStock }
+    const minStock = product.min_stock || 0
+    const maxStock = product.max_stock || 0
+
+    // 判断库存状态（不受商品停用状态影响）
+    let stockStatusType: 'normal' | 'low' | 'out' | 'overfull' = 'normal'
+
+    if (currentStock === 0) {
+      stockStatusType = 'out'
+      return { color: '#ff4d4f', tagColor: 'error', text: '无库存', stock: currentStock, stockStatusType }
+    } else if (currentStock < minStock) {
+      stockStatusType = 'low'
+      return { color: '#faad14', tagColor: 'warning', text: '库存不足', stock: currentStock, stockStatusType }
+    } else if (currentStock > maxStock) {
+      stockStatusType = 'overfull'
+      return { color: '#13c2c2', tagColor: 'cyan', text: '库存过多', stock: currentStock, stockStatusType }
     } else {
-      return { color: '#28a745', tagColor: 'success', text: '正常', stock: currentStock }
+      return { color: '#28a745', tagColor: 'success', text: '正常', stock: currentStock, stockStatusType }
     }
   }
 
@@ -420,12 +539,24 @@ const Inventory: React.FC = () => {
         try {
           await dispatch(deleteProduct(product.id)).unwrap()
           message.success('商品删除成功')
-          dispatch(fetchProducts({ page: currentPage, pageSize }))
+          dispatch(fetchProducts({ page: currentPage, pageSize, includeDisabled: showDisabledProducts }))
         } catch (error: any) {
           message.error(error?.message || '商品删除失败')
         }
       }
     })
+  }
+
+  // 切换商品启用/停用状态
+  const handleToggleStatus = async (product: Product) => {
+    const actionText = product.status === 1 ? '停用' : '启用'
+    try {
+      await dispatch(toggleProductStatus(product.id)).unwrap()
+      message.success(`商品${actionText}成功`)
+      dispatch(fetchProducts({ page: currentPage, pageSize, includeDisabled: showDisabledProducts }))
+    } catch (error: any) {
+      message.error(error?.message || `${actionText}失败`)
+    }
   }
 
   // 新建商品
@@ -726,6 +857,11 @@ const Inventory: React.FC = () => {
 
   // ========== 入库功能 ==========
   const handleInbound = (product: Product) => {
+    // 检查商品是否停用
+    if (product.status === 0) {
+      message.warning('该商品已停用，无法进行入库操作')
+      return
+    }
     setSelectedProduct(product)
     // 先打开弹窗，然后设置表单值，确保表单已渲染
     setInboundModalVisible(true)
@@ -922,6 +1058,16 @@ const Inventory: React.FC = () => {
         return
       }
 
+      // 检查是否有停用商品
+      const disabledProducts = batchInboundProducts.filter(p => {
+        const product = products.find(prod => prod.id === p.product_id)
+        return product && product.status === 0
+      })
+      if (disabledProducts.length > 0) {
+        message.error(`选中的商品中包含 ${disabledProducts.length} 个已停用商品，无法进行入库操作`)
+        return
+      }
+
       // 检查是否有商品输入了SN码
       const hasSerialNumbers = batchInboundProducts.some(p => p.serial_numbers.length > 0)
       if (!hasSerialNumbers) {
@@ -1016,6 +1162,11 @@ const Inventory: React.FC = () => {
 
   // ========== 出库功能 ==========
   const handleOutbound = (product: Product) => {
+    // 检查商品是否停用
+    if (product.status === 0) {
+      message.warning('该商品已停用，无法进行出库操作')
+      return
+    }
     setSelectedProduct(product)
     const currentStock = product.stock_quantity || (product as any).current_stock || 0
     setSelectedCustomerId(undefined)
@@ -1169,6 +1320,16 @@ const Inventory: React.FC = () => {
 
       if (!batchOutboundProducts || batchOutboundProducts.length === 0) {
         message.error('请至少选择一个商品')
+        return
+      }
+
+      // 检查是否有停用商品
+      const disabledProducts = batchOutboundProducts.filter(p => {
+        const product = products.find(prod => prod.id === p.product_id)
+        return product && product.status === 0
+      })
+      if (disabledProducts.length > 0) {
+        message.error(`选中的商品中包含 ${disabledProducts.length} 个已停用商品，无法进行出库操作`)
         return
       }
 
@@ -1510,6 +1671,11 @@ const Inventory: React.FC = () => {
 
   // ========== 盘点功能 ==========
   const handleCheck = (product: Product) => {
+    // 检查商品是否停用
+    if (product.status === 0) {
+      message.warning('该商品已停用，无法进行盘点操作')
+      return
+    }
     setSelectedProduct(product)
     // 获取当前库存，优先使用 stock_quantity，然后是 current_stock
     const currentStock = product.stock_quantity !== undefined && product.stock_quantity !== null
@@ -1690,6 +1856,7 @@ const Inventory: React.FC = () => {
       }
     ]
 
+
     return (
       <div className="page-transition">
         <Card
@@ -1714,9 +1881,10 @@ const Inventory: React.FC = () => {
             </Space>
           }
         >
+          {renderIOFilterBar()}
           <Table
             columns={inboundColumns}
-            dataSource={products}
+            dataSource={getFilteredIOProducts()}
             loading={loading}
             rowKey="id"
             pagination={{
@@ -2065,9 +2233,10 @@ const Inventory: React.FC = () => {
             </Space>
           }
         >
+          {renderIOFilterBar()}
           <Table
             columns={outboundColumns}
-            dataSource={products}
+            dataSource={getFilteredIOProducts()}
             loading={loading}
             rowKey="id"
             pagination={{
@@ -3029,9 +3198,10 @@ const Inventory: React.FC = () => {
             </Button>
           }
         >
+          {renderIOFilterBar()}
           <Table
             columns={checkColumns}
-            dataSource={products}
+            dataSource={getFilteredIOProducts()}
             loading={loading}
             rowKey="id"
             pagination={{
@@ -3233,11 +3403,12 @@ const Inventory: React.FC = () => {
       title: '商品名称',
       dataIndex: 'product_name',
       key: 'product_name',
-      width: 150,
+      width: 120,
+      align: 'center' as const,
       render: (text: string, record: any) => (
         <div>
-          <div style={{ fontWeight: 500 }}>{text}</div>
-          <div style={{ fontSize: 12, color: '#999' }}>SKU: {record.product_sku}</div>
+          <div style={{ fontWeight: 500, fontSize: 18 }}>{text}</div>
+          <div style={{ fontSize: 16, color: '#999' }}>SKU: {record.product_sku}</div>
         </div>
       )
     },
@@ -3245,7 +3416,8 @@ const Inventory: React.FC = () => {
       title: '批次号',
       dataIndex: 'batch_number',
       key: 'batch_number',
-      width: 150
+      width: 150,
+      align: 'center' as const,
     },
     {
       title: 'SN码数量',
@@ -3260,8 +3432,50 @@ const Inventory: React.FC = () => {
       title: '存放位置',
       dataIndex: 'location',
       key: 'location',
-      width: 120,
-      render: (text: string) => text || '-'
+      width: 80,
+      align: 'center' as const,
+      render: (text: string, record: any) => (
+        <span
+          style={{ 
+            cursor: 'pointer',
+            fontSize: 16,
+            padding: '4px 8px',
+            borderRadius: 4,
+            transition: 'background 0.2s'
+          }}
+          className="location-edit"
+          onClick={() => {
+            Modal.confirm({
+              title: '修改存放位置',
+              content: (
+                <Input
+                  id="locationInput"
+                  defaultValue={text}
+                  placeholder="请输入存放位置"
+                  style={{ marginTop: 16 }}
+                />
+              ),
+              onOk: () => {
+                const input = document.getElementById('locationInput') as HTMLInputElement
+                const newLocation = input?.value || ''
+                if (newLocation !== text) {
+                  return inventoryAPI.updateBatchLocation(record.product_id, record.batch_number, newLocation).then(res => {
+                    if (res.success) {
+                      message.success('存放位置更新成功')
+                      loadBatches()
+                    } else {
+                      message.error(res.error || '更新失败')
+                      return Promise.reject()
+                    }
+                  })
+                }
+              }
+            })
+          }}
+        >
+          {text || '——'}
+        </span>
+      )
     },
     {
       title: '入库日期',
@@ -3278,7 +3492,7 @@ const Inventory: React.FC = () => {
       width: 120,
       align: 'center' as const,
       render: (text: string) => {
-        if (!text) return '-'
+        if (!text) return '——'
         const expiry = dayjs(text)
         const daysUntilExpiry = expiry.diff(dayjs(), 'day')
         if (daysUntilExpiry < 0) {
@@ -3404,38 +3618,71 @@ const Inventory: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 100,
+      width: 160,
       align: 'center' as const,
       render: (_: any, record: any) => {
         // 从record中获取status
         const status = record.status
-
-        // 仅对未出库的SN码显示删除按钮
-        if (status === 'out') {
-          return <span>-</span>
-        }
-
         const productId = record.product_id || record.__expandedRowData?.product_id
         const serialNumber = record.serial_number
+
+        // 已出库：只显示维修按钮，不显示删除
+        if (status === 'out') {
+          if (!productId || !serialNumber) return <span>-</span>
+          return (
+            <Button
+              type="link"
+              size="small"
+              icon={<ToolOutlined />}
+              style={{ color: '#fa8c16' }}
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                setRepairSN(serialNumber)
+                setRepairProductId(productId)
+                setRepairModalVisible(true)
+              }}
+            >
+              维修
+            </Button>
+          )
+        }
 
         if (!productId || !serialNumber) {
           return <span>-</span>
         }
 
         return (
-          <Button
-            type="link"
-            danger
-            size="small"
-            icon={<DeleteOutlined />}
-            onClick={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-              handleDeleteSNCode(serialNumber, productId)
-            }}
-          >
-            删除
-          </Button>
+          <Space size={2}>
+            <Button
+              type="link"
+              size="small"
+              icon={<ToolOutlined />}
+              style={{ color: '#fa8c16' }}
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                setRepairSN(serialNumber)
+                setRepairProductId(productId)
+                setRepairModalVisible(true)
+              }}
+            >
+              维修
+            </Button>
+            <Button
+              type="link"
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                handleDeleteSNCode(serialNumber, productId)
+              }}
+            >
+              删除
+            </Button>
+          </Space>
         )
       }
     }
@@ -3446,14 +3693,27 @@ const Inventory: React.FC = () => {
       <Card
         title="商品管理"
         extra={
-          <Button
-            type="link"
-            icon={<HistoryOutlined />}
-            onClick={() => setLogModalVisible(true)}
-            style={{ boxShadow: '0 0 1px 0 black', borderRadius: '5px' }}
-          >
-            查看操作日志
-          </Button>
+          <Space>
+            <Switch
+              checkedChildren="显示停用商品"
+              unCheckedChildren="隐藏停用商品"
+              checked={showDisabledProducts}
+              onChange={(checked) => {
+                setShowDisabledProducts(checked)
+                // 切换后重新加载商品列表
+                dispatch(fetchProducts({ page: 1, pageSize, includeDisabled: checked }))
+              }}
+              style={{ marginRight: 8 }}
+            />
+            <Button
+              type="link"
+              icon={<HistoryOutlined />}
+              onClick={() => setLogModalVisible(true)}
+              style={{ boxShadow: '0 0 1px 0 black', borderRadius: '5px' }}
+            >
+              查看操作日志
+            </Button>
+          </Space>
         }
       >
         <Tabs
@@ -3746,6 +4006,14 @@ const Inventory: React.FC = () => {
         />
       </Card>
 
+      {/* 维修记录弹窗 */}
+      <RepairRecordModal
+        open={repairModalVisible}
+        serialNumber={repairSN}
+        productId={repairProductId}
+        onClose={() => setRepairModalVisible(false)}
+      />
+
       {/* 新建/编辑商品模态框 */}
       <Modal
         title={editingProduct ? '编辑商品' : '新建商品'}
@@ -3899,7 +4167,7 @@ const Inventory: React.FC = () => {
               width: '15%',
               render: (status: number) => (
                 <Tag color={status === 1 ? 'success' : 'default'}>
-                  {status === 1 ? '启用' : '禁用'}
+                  {status === 1 ? '启用' : '停用'}
                 </Tag>
               )
             },
