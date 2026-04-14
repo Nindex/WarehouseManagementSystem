@@ -3,6 +3,7 @@
   "debug.javascript.autoAttachSmartPattern": [],
   "debug.node.autoAttach": "disabled",
   "debug.javascript.unmapMissingSources": true,
-  "debug.terminal.clearBeforeReusing": true
+  "debug.terminal.clearBeforeReusing": true,
+  "markdown.validate.enabled": true
 }
 
