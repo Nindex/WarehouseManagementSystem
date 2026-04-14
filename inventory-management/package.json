@@ -120,7 +120,8 @@
       "!node_modules/**/{CHANGELOG.md,README.md,README,readme.md,readme}",
       "!node_modules/**/{test,__tests__,tests,powered-test,example,examples}",
       "!node_modules/**/*.d.ts",
-      "!node_modules/**/*.map"
+      "!node_modules/**/*.map",
+      "!data/**/*"
     ],
     "asarUnpack": [
       "**/*.node",
@@ -169,7 +170,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "仓库管理系统",
       "deleteAppDataOnUninstall": false,
-      "differentialPackage": true
+      "differentialPackage": true,
+      "include": "build/installer.nsh"
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
