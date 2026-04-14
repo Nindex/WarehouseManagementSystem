@@ -134,9 +134,6 @@ const LoginPage: React.FC = () => {
         </Form>
 
         <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
-          <Space direction="vertical" size={4} style={{ fontSize: 12 }}>
-            <div>默认账号- admin / admin123</div>
-          </Space>
           <div style={{ marginTop: 12 }}>
             <a onClick={() => navigate('/register')} style={{ color: '#003366' }}>没有账号？立即注册</a>
           </div>
