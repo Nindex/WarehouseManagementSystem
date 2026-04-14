@@ -336,8 +336,3 @@ npm run rebuild:sqlite
 ## 许可证
 
 MIT License
-
-## 联系方式
-
-如有问题或建议，请通过以下方式联系：
-- **邮箱**: 2275337077@qq.com
