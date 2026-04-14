@@ -126,12 +126,6 @@ npm run install:safe
 - 执行 `database/schema.sql` 创建表结构
 - 执行 `database/seed.sql` 插入种子数据
 
-默认管理员账号：
-- **用户名**: `admin`
-- **密码**: `admin123`
-
-> ⚠️ **安全提示**: 首次登录后请立即修改默认密码。
-
 #### 4. 启动开发服务器
 
 ```bash
