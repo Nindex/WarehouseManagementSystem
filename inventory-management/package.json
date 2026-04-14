@@ -1,6 +1,6 @@
 {
   "name": "inventory-management",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "本地化仓库管理系统",
   "main": ".vite/build/main/index.js",
   "scripts": {
