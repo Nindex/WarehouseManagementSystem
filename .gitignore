@@ -1,1 +1,4 @@
 .npm-cache
+.workbuddy/memory$(date +%Y-%m-%d).md
+.gitignore
+inventory-management/.gitignore

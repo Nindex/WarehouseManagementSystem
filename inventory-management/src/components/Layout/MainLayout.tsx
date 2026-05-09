@@ -190,12 +190,12 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   }, [])
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '110vh' }}>
       <Sider
         trigger={null}
         collapsible
         collapsed={sidebarCollapsed}
-        width={240}
+        width={200}
         style={{
           overflow: 'auto',
           height: '100vh',
@@ -449,7 +449,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         `}</style>
       </Sider>
       
-      <Layout style={{ marginLeft: sidebarCollapsed ? 80 : 240, transition: 'margin-left 0.2s' }}>
+      <Layout style={{ marginLeft: sidebarCollapsed ? 80 : 200, transition: 'margin-left 0.2s' }}>
         <Header style={{ 
           padding: '0 24px', 
           background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',

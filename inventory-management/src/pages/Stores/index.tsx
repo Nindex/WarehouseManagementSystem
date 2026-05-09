@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Space, Input, Tag, Modal, App, Select, Tooltip, Form } from 'antd'
-import { HistoryOutlined, EditOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Space, Input, Tag, Modal, App, Select, Tooltip, Form, Descriptions } from 'antd'
+import { HistoryOutlined, EditOutlined, DeleteOutlined, PlusOutlined, EyeOutlined, ToolOutlined } from '@ant-design/icons'
 import ActivityLogModal from '@/components/ActivityLogModal'
-import { customerAPI, inventoryAPI } from '@/services/api'
+import { customerAPI, inventoryAPI, repairAPI } from '@/services/api'
 import type { CustomerStore } from '@/services/database/CustomerService'
 import type { Customer } from '@/services/database/CustomerService'
 
@@ -45,6 +45,11 @@ const Stores: React.FC = () => {
   const [storeForm] = Form.useForm()
   const [snItemsCache, setSnItemsCache] = useState<Record<number, string[]>>({})
   const [snLoadingIds, setSnLoadingIds] = useState<Record<number, boolean>>({})
+  const [viewModalVisible, setViewModalVisible] = useState(false)
+  const [viewingStore, setViewingStore] = useState<CustomerStore | null>(null)
+  const [storeRepairModalVisible, setStoreRepairModalVisible] = useState(false)
+  const [storeRepairRecords, setStoreRepairRecords] = useState<any[]>([])
+  const [storeRepairLoading, setStoreRepairLoading] = useState(false)
 
   useEffect(() => {
     loadStores()
@@ -148,12 +153,41 @@ const Stores: React.FC = () => {
     storeForm.resetFields()
     storeForm.setFieldsValue({
       customer_id: store.customer_id,
+      code: store.code,
       store_name: store.store_name,
       address: store.address,
       contact_person: store.contact_person,
       phone: store.phone
     })
     setStoreModalVisible(true)
+  }
+
+  const handleViewStore = (store: CustomerStore) => {
+    setViewingStore(store)
+    setViewModalVisible(true)
+  }
+
+  const loadStoreRepairRecords = async (storeId: number) => {
+    try {
+      setStoreRepairLoading(true)
+      const res = await repairAPI.getRepairsByStoreId(storeId)
+      if (res.success && res.data) {
+        setStoreRepairRecords(res.data)
+      } else {
+        setStoreRepairRecords([])
+      }
+    } catch (error) {
+      console.error('加载门店维修记录失败:', error)
+      message.error('加载维修记录失败')
+    } finally {
+      setStoreRepairLoading(false)
+    }
+  }
+
+  const handleViewStoreRepairs = async (store: CustomerStore) => {
+    setViewModalVisible(false)
+    await loadStoreRepairRecords(store.id!)
+    setStoreRepairModalVisible(true)
   }
 
   const handleDeleteStore = (store: CustomerStore) => {
@@ -186,7 +220,7 @@ const Stores: React.FC = () => {
       }
 
       if (editingStore) {
-        // 更新门店
+        // 更新门店（code 不可修改，所以不传递）
         const res = await customerAPI.updateStore(editingStore.id, {
           customer_id: values.customer_id,
           store_name: values.store_name,
@@ -207,6 +241,7 @@ const Stores: React.FC = () => {
         // 创建门店
         const res = await customerAPI.createStore({
           customer_id: values.customer_id,
+          code: values.code || undefined, // 如果没填写，传递 undefined
           store_name: values.store_name,
           address: values.address,
           contact_person: values.contact_person,
@@ -255,6 +290,14 @@ const Stores: React.FC = () => {
   }
 
   const columns = [
+    {
+      title: '门店编码',
+      dataIndex: 'code',
+      key: 'code',
+      width: 100,
+      align: 'center' as const,
+      render: (text: string) => text || '-'
+    },
     {
       title: '门店名称',
       dataIndex: 'store_name',
@@ -312,11 +355,19 @@ const Stores: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 100,
+      width: 130,
       align: 'center' as const,
       fixed: 'right' as const,
       render: (_: any, record: CustomerStore) => (
         <Space size="small">
+          <Tooltip title="查看详情">
+            <Button
+              type="link"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewStore(record)}
+              size="small"
+            />
+          </Tooltip>
           <Tooltip title="出库记录">
             <Button
               type="link"
@@ -333,7 +384,7 @@ const Stores: React.FC = () => {
               size="small"
             />
           </Tooltip>
-
+          
         </Space>
       )
     }
@@ -538,6 +589,29 @@ const Stores: React.FC = () => {
             />
           </Form.Item>
           <Form.Item
+            label="门店编码"
+            name="code"
+            tooltip="新建时可填写，建立后不可修改。如不填写，系统将自动生成。只能输入数字"
+            rules={[
+              {
+                pattern: /^\d*$/,
+                message: '门店编码只能包含数字'
+              }
+            ]}
+          >
+            <Input 
+              placeholder="请输入门店编码（可选，只能输入数字）" 
+              disabled={!!editingStore}
+              onChange={(e) => {
+                // 过滤非数字字符
+                const value = e.target.value.replace(/\D/g, '');
+                if (value !== e.target.value) {
+                  storeForm.setFieldValue('code', value);
+                }
+              }}
+            />
+          </Form.Item>
+          <Form.Item
             label="门店名称"
             name="store_name"
             rules={[{ required: true, message: '请输入门店名称' }]}
@@ -565,6 +639,93 @@ const Stores: React.FC = () => {
         </Form>
       </Modal>
 
+      {/* 查看门店详情模态框 */}
+      <Modal
+        title={`门店详情 - ${viewingStore?.store_name || ''}`}
+        open={viewModalVisible}
+        onCancel={() => {
+          setViewModalVisible(false)
+          setViewingStore(null)
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setViewModalVisible(false)
+            setViewingStore(null)
+          }}>
+            关闭
+          </Button>,
+          <Button key="repair" type="primary" icon={<ToolOutlined />} onClick={() => {
+            if (viewingStore) {
+              handleViewStoreRepairs(viewingStore)
+            }
+          }}>
+            维修记录
+          </Button>
+        ]}
+        width={500}
+      >
+        {viewingStore && (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="门店编码">{viewingStore.code || '-'}</Descriptions.Item>
+            <Descriptions.Item label="门店名称">{viewingStore.store_name}</Descriptions.Item>
+            <Descriptions.Item label="客户">{viewingStore.customer_name || '-'}</Descriptions.Item>
+            <Descriptions.Item label="地址">{viewingStore.address || '-'}</Descriptions.Item>
+            <Descriptions.Item label="联系人">{viewingStore.contact_person || '-'}</Descriptions.Item>
+            <Descriptions.Item label="联系电话">{viewingStore.phone || '-'}</Descriptions.Item>
+            <Descriptions.Item label="状态">
+              <Tag color={viewingStore.status === 1 ? 'success' : 'default'}>
+                {viewingStore.status === 1 ? '启用' : '停用'}
+              </Tag>
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Modal>
+      
+      {/* 门店维修记录查看模态框 */}
+      <Modal
+        title={`维修记录 - ${viewingStore?.store_name || ''}`}
+        open={storeRepairModalVisible}
+        onCancel={() => {
+          setStoreRepairModalVisible(false)
+          setStoreRepairRecords([])
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setStoreRepairModalVisible(false)
+            setStoreRepairRecords([])
+          }}>
+            关闭
+          </Button>
+        ]}
+        width={900}
+      >
+        <Table
+          columns={[
+            { title: 'SN码', dataIndex: 'serial_number', key: 'serial_number', width: 150, align: 'center' as const },
+            { title: '商品ID', dataIndex: 'product_id', key: 'product_id', width: 80, align: 'center' as const },
+            { title: '客户', dataIndex: 'customer_name', key: 'customer_name', width: 120, align: 'center' as const, render: (text: string) => text || '-' },
+            { title: '总金额', dataIndex: 'total_amount', key: 'total_amount', width: 100, align: 'center' as const, render: (val: number) => val ? `¥${val.toFixed(2)}` : '-' },
+            { title: '维修日期', key: 'repair_date', width: 120, align: 'center' as const, render: (_: any, record: any) => {
+              if (record.parts && record.parts.length > 0) {
+                return record.parts[0].repair_date || '-'
+              }
+              return '-'
+            }},
+            { title: '质保截止', key: 'warranty_end_date', width: 120, align: 'center' as const, render: (_: any, record: any) => {
+              if (record.parts && record.parts.length > 0) {
+                return record.parts[0].warranty_end_date || '-'
+              }
+              return '-'
+            }},
+          ]}
+          dataSource={storeRepairRecords}
+          loading={storeRepairLoading}
+          rowKey="id"
+          pagination={false}
+          scroll={{ y: 400 }}
+        />
+      </Modal>
+      
       <ActivityLogModal
         visible={logModalVisible}
         onCancel={() => setLogModalVisible(false)}

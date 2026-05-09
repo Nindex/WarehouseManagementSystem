@@ -301,6 +301,33 @@ export interface SystemLog {
 }
 
 /**
+ * 服务费记录接口
+ * 定义客户服务费记录的数据结构
+ */
+export interface ServiceFeeRecord {
+  /** 记录ID */
+  id: number
+  /** 客户ID */
+  customer_id: number
+  /** 服务费开始日期 */
+  start_date: string
+  /** 服务费结束日期 */
+  end_date: string
+  /** 交款日期 */
+  payment_date?: string
+  /** 是否已交款：0未交，1已交 */
+  is_paid: number
+  /** 金额 */
+  amount?: number
+  /** 备注 */
+  notes?: string
+  /** 创建时间 */
+  created_at: string
+  /** 更新时间 */
+  updated_at: string
+}
+
+/**
  * 库存预警类型接口
  * 定义库存异常情况的预警信息
  */

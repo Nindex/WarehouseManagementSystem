@@ -1290,7 +1290,7 @@ const Settings: React.FC = () => {
                     </Descriptions.Item>
                     <Descriptions.Item label="版本号">
                       <Space>
-                        <span>{'1.3.4'}</span>
+                        <span>{'1.3.5'}</span>
                         <Button
                           type="link"
                           size="small"

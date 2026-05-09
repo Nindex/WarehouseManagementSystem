@@ -722,9 +722,9 @@ export const systemLogAPI = {
 
 // 客户相关API
 export const customerAPI = {
-  getCustomers: async (page = 1, pageSize = 20, search = '', includeDisabled = false) => {
+  getCustomers: async (page = 1, pageSize = 20, search = '', includeDisabled = false, statusFilter?: number, feeStatusFilter?: string, sortField?: string, sortOrder?: 'asc' | 'desc') => {
     try {
-      const result = await CustomerService.getAllCustomers(page, pageSize, search, includeDisabled)
+      const result = await CustomerService.getAllCustomers(page, pageSize, search, includeDisabled, statusFilter, feeStatusFilter, sortField, sortOrder)
       return {
         success: true,
         data: {
@@ -845,6 +845,57 @@ export const customerAPI = {
     } catch (error: any) {
       console.error('删除门店失败:', error)
       return { success: false, error: error?.message || '删除门店失败' }
+    }
+  },
+
+  // 服务费记录相关API
+  getServiceFeeRecords: async (customerId: number) => {
+    try {
+      const records = await CustomerService.getServiceFeeRecords(customerId)
+      return { success: true, data: records }
+    } catch (error: any) {
+      console.error('获取服务费记录失败:', error)
+      return { success: false, error: error?.message || '获取服务费记录失败' }
+    }
+  },
+
+  createServiceFeeRecord: async (data: any) => {
+    try {
+      const record = await CustomerService.createServiceFeeRecord(data)
+      return { success: true, data: record }
+    } catch (error: any) {
+      console.error('创建服务费记录失败:', error)
+      return { success: false, error: error?.message || '创建服务费记录失败' }
+    }
+  },
+
+  updateServiceFeeRecord: async (id: number, data: any) => {
+    try {
+      const record = await CustomerService.updateServiceFeeRecord(id, data)
+      return { success: true, data: record }
+    } catch (error: any) {
+      console.error('更新服务费记录失败:', error)
+      return { success: false, error: error?.message || '更新服务费记录失败' }
+    }
+  },
+
+  deleteServiceFeeRecord: async (id: number) => {
+    try {
+      await CustomerService.deleteServiceFeeRecord(id)
+      return { success: true, message: '服务费记录删除成功' }
+    } catch (error: any) {
+      console.error('删除服务费记录失败:', error)
+      return { success: false, error: error?.message || '删除服务费记录失败' }
+    }
+  },
+
+  getServiceFeeStatus: async (customerId: number) => {
+    try {
+      const status = await CustomerService.getServiceFeeStatus(customerId)
+      return { success: true, data: status }
+    } catch (error: any) {
+      console.error('获取服务费状态失败:', error)
+      return { success: false, error: error?.message || '获取服务费状态失败' }
     }
   }
 }
@@ -1152,6 +1203,26 @@ export const repairAPI = {
     } catch (error: any) {
       console.error('获取维修记录失败:', error)
       return { success: false, error: error?.message || '获取维修记录失败' }
+    }
+  },
+
+  getRepairsByCustomerId: async (customerId: number) => {
+    try {
+      const data = await RepairService.getRepairsByCustomerId(customerId)
+      return { success: true, data }
+    } catch (error: any) {
+      console.error('获取客户维修记录失败:', error)
+      return { success: false, error: error?.message || '获取客户维修记录失败' }
+    }
+  },
+
+  getRepairsByStoreId: async (storeId: number) => {
+    try {
+      const data = await RepairService.getRepairsByStoreId(storeId)
+      return { success: true, data }
+    } catch (error: any) {
+      console.error('获取门店维修记录失败:', error)
+      return { success: false, error: error?.message || '获取门店维修记录失败' }
     }
   },
 

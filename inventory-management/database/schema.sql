@@ -181,7 +181,7 @@ CREATE TABLE customers (
     name TEXT NOT NULL,
     contact_person TEXT,
     phone TEXT,
-    email TEXT,
+    service_fee_expiry_date TEXT,
     address TEXT,
     status INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -202,6 +202,23 @@ CREATE TABLE customer_stores (
     FOREIGN KEY (customer_id) REFERENCES customers(id),
     UNIQUE(customer_id, store_name)
 );
+
+-- 服务费记录表
+CREATE TABLE service_fee_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    payment_date TEXT,
+    is_paid INTEGER DEFAULT 0,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE INDEX idx_service_fee_records_customer ON service_fee_records(customer_id);
+CREATE INDEX idx_service_fee_records_dates ON service_fee_records(start_date, end_date);
 
 -- 批次库存表
 CREATE TABLE inventory_batches (

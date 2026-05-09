@@ -137,6 +137,46 @@ const RepairService = {
     return records
   },
 
+  // 获取某客户的所有维修记录（含部件）
+  async getRepairsByCustomerId(customerId: number): Promise<RepairRecord[]> {
+    await migrateRepairTables()
+    const records = await databaseService.query<RepairRecord>(
+      `SELECT * FROM repair_records WHERE customer_id = ? ORDER BY created_at DESC`,
+      [customerId]
+    )
+    for (const record of records) {
+      const parts = await databaseService.query<RepairPart>(
+        `SELECT * FROM repair_parts WHERE repair_id = ? ORDER BY id ASC`,
+        [record.id!]
+      )
+      record.parts = parts.map(p => ({
+        ...p,
+        subtotal: (p.repair_amount || 0) + (p.accessory_amount || 0) + (p.other_amount || 0)
+      }))
+    }
+    return records
+  },
+
+  // 获取某门店的所有维修记录（含部件）
+  async getRepairsByStoreId(storeId: number): Promise<RepairRecord[]> {
+    await migrateRepairTables()
+    const records = await databaseService.query<RepairRecord>(
+      `SELECT * FROM repair_records WHERE store_id = ? ORDER BY created_at DESC`,
+      [storeId]
+    )
+    for (const record of records) {
+      const parts = await databaseService.query<RepairPart>(
+        `SELECT * FROM repair_parts WHERE repair_id = ? ORDER BY id ASC`,
+        [record.id!]
+      )
+      record.parts = parts.map(p => ({
+        ...p,
+        subtotal: (p.repair_amount || 0) + (p.accessory_amount || 0) + (p.other_amount || 0)
+      }))
+    }
+    return records
+  },
+
   // 新增维修记录（含多条部件）
   async createRepair(data: RepairRecord): Promise<RepairRecord> {
     await migrateRepairTables()
