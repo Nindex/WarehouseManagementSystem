@@ -109,7 +109,7 @@
 #### 1. 克隆项目
 
 ```bash
-git clone <repository-url>
+git clone git@github.com:Nindex/WarehouseManagementSystem.git
 cd inventory-management
 ```
 
